@@ -8,7 +8,7 @@ use windows::core::PCWSTR;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Performance::{
     PdhAddCounter, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterValue, PdhOpenQuery,
-    PDH_FMT_COUNTER_VALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
+    PdhRemoveCounter, PDH_FMT_COUNTER_VALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
 };
 
 #[cfg(target_os = "windows")]
@@ -57,8 +57,9 @@ impl PdhCollector {
         let mut results = HashMap::new();
         for (pid, counter) in &self.counters {
             let mut value = PDH_FMT_COUNTER_VALUE::default();
-            unsafe { PdhGetFormattedCounterValue(*counter, PDH_FMT_DOUBLE, None, &mut value) }
-                .ok();
+            unsafe {
+                let _ = PdhGetFormattedCounterValue(*counter, PDH_FMT_DOUBLE, None, &mut value);
+            }
 
             results.insert(*pid, value.doubleValue);
         }
@@ -81,11 +82,20 @@ impl PdhCollector {
 
     /// 移除指定 PID 的 counter
     pub fn remove_process_counter(&mut self, pid: u32) {
-        self.counters.remove(&pid);
+        if let Some(counter) = self.counters.remove(&pid) {
+            unsafe {
+                let _ = PdhRemoveCounter(counter);
+            };
+        }
     }
 
     /// 清除所有 counters
     pub fn clear_counters(&mut self) {
+        for counter in self.counters.values() {
+            unsafe {
+                let _ = PdhRemoveCounter(*counter);
+            };
+        }
         self.counters.clear();
     }
 }
@@ -94,7 +104,7 @@ impl PdhCollector {
 impl Drop for PdhCollector {
     fn drop(&mut self) {
         // 正确关闭 PDH query，释放资源
-        unsafe { PdhCloseQuery(self.query) };
+        let _ = unsafe { PdhCloseQuery(self.query) };
     }
 }
 
