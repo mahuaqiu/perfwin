@@ -1,5 +1,8 @@
+#[cfg(target_os = "windows")]
 use std::process::{Child, Command};
+#[cfg(target_os = "windows")]
 use std::path::PathBuf;
+#[cfg(target_os = "windows")]
 use std::time::Duration;
 use anyhow::Result;
 
@@ -7,11 +10,13 @@ use anyhow::Result;
 ///
 /// 负责 HWiNFO 可执行文件的启动、停止和生命周期管理。
 /// 注意：HWiNFO 仅存在于 Windows 平台。
+#[cfg(target_os = "windows")]
 pub struct HWiNFOManager {
     process: Option<Child>,
     path: PathBuf,
 }
 
+#[cfg(target_os = "windows")]
 impl HWiNFOManager {
     /// 创建新的 HWiNFO 管理器
     ///
@@ -75,6 +80,7 @@ impl HWiNFOManager {
         if let Some(mut process) = self.process.take() {
             process.kill()
                 .map_err(|e| anyhow::anyhow!("Failed to kill HWiNFO: {}", e))?;
+            process.wait().ok(); // 等待进程回收，忽略错误
         }
         Ok(())
     }
@@ -109,6 +115,7 @@ impl HWiNFOManager {
     }
 }
 
+#[cfg(target_os = "windows")]
 impl Drop for HWiNFOManager {
     fn drop(&mut self) {
         if let Err(e) = self.stop() {
@@ -117,11 +124,25 @@ impl Drop for HWiNFOManager {
     }
 }
 
+// 非 Windows 平台的 stub 实现
+#[cfg(not(target_os = "windows"))]
+pub struct HWiNFOManager {
+    _private: (),
+}
+
+#[cfg(not(target_os = "windows"))]
+impl HWiNFOManager {
+    pub fn new(_hwinfo_path: Option<&str>) -> Result<Self> {
+        Err(anyhow::anyhow!("HWiNFO is only available on Windows"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn test_new_with_path() {
         let manager = HWiNFOManager::new(Some("C:\\path\\to\\HWiNFO.exe"));
         assert!(manager.is_ok());
@@ -130,6 +151,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn test_is_running_when_not_started() {
         let manager = HWiNFOManager::new(Some("C:\\path\\to\\HWiNFO.exe")).unwrap();
         assert!(!manager.is_running());
