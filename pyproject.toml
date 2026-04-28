@@ -1,0 +1,17 @@
+[build-system]
+requires = ["maturin>=1.0"]
+build-backend = "maturin"
+
+[project]
+name = "perfdog"
+version = "0.1.0"
+description = "Windows system performance monitoring extension"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Operating System :: Microsoft :: Windows",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
