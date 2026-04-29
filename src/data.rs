@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
 /// CPU 系统信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CPUInfo {
     pub percent: f64,
     pub temperature: Option<f64>,
@@ -10,7 +10,7 @@ pub struct CPUInfo {
 }
 
 /// GPU 系统信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GPUInfo {
     pub percent: f64,
     pub temperature: Option<f64>,
@@ -19,7 +19,7 @@ pub struct GPUInfo {
 }
 
 /// 内存系统信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MemoryInfo {
     pub percent: f64,
     pub used_mb: f64,
@@ -29,14 +29,14 @@ pub struct MemoryInfo {
 }
 
 /// 网络系统信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NetworkInfo {
     pub upload_speed: f64,      // bytes/s
     pub download_speed: f64,    // bytes/s
 }
 
 /// 系统级信息汇总
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SystemInfo {
     pub cpu: CPUInfo,
     pub gpu: GPUInfo,
