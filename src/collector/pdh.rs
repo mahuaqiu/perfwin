@@ -37,7 +37,13 @@ impl PdhCollector {
 
     /// 为指定 PID 添加 GPU counter
     /// GPU counter 路径: \GPU Engine(pid_{}*)\Utilization Percentage
+    /// 如果该 PID 的 counter 已存在，则跳过
     pub fn add_process_counter(&mut self, pid: u32) -> anyhow::Result<()> {
+        // 检查是否已存在，避免重复添加
+        if self.counters.contains_key(&pid) {
+            return Ok(());
+        }
+
         let counter_path = format!("\\GPU Engine(pid_{}*)\\Utilization Percentage", pid);
         let path_wide: Vec<u16> = counter_path.encode_utf16().chain(std::iter::once(0)).collect();
 
@@ -47,6 +53,16 @@ impl PdhCollector {
 
         self.counters.insert(pid, counter);
         Ok(())
+    }
+
+    /// 批量为多个 PID 添加 GPU counter
+    /// 会自动跳过已存在的 counter，失败时继续处理下一个
+    pub fn add_process_counters(&mut self, pids: &[u32]) {
+        for &pid in pids {
+            if let Err(e) = self.add_process_counter(pid) {
+                log::warn!("Failed to add counter for pid {}: {}", pid, e);
+            }
+        }
     }
 
     /// 收集 GPU 数据
@@ -123,6 +139,10 @@ impl PdhCollector {
 
     pub fn add_process_counter(&mut self, _pid: u32) -> anyhow::Result<()> {
         anyhow::bail!("PDH collector is only available on Windows");
+    }
+
+    pub fn add_process_counters(&mut self, _pids: &[u32]) {
+        // 非 Windows 平台无操作
     }
 
     pub fn collect(&mut self) -> anyhow::Result<std::collections::HashMap<u32, f64>> {

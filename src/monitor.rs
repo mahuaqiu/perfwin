@@ -199,8 +199,11 @@ fn collect_sample(
     let processes = if config.process_filter.is_some() {
         let mut procs = get_filtered_processes(config, sysinfo_collector);
 
-        // 更新 GPU 数据
+        // 为目标进程添加 PDH counter 并更新 GPU 数据
         if let Some(pdh) = pdh_collector {
+            // 提取 PID 列表并添加 counters
+            let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
+            pdh.add_process_counters(&pids);
             let _ = pdh.update_process_gpu(&mut procs);
         }
 
@@ -211,11 +214,25 @@ fn collect_sample(
 
     // 获取 Top N 进程
     let top_n_cpu = config.top_n_cpu.and_then(|n| {
-        get_top_n_processes(sysinfo_collector, n, |p| p.cpu_percent)
+        let mut procs = get_top_n_processes(sysinfo_collector, n, |p| p.cpu_percent);
+        // 为 top N CPU 进程添加 PDH counter 并更新 GPU 数据
+        if let Some(pdh) = pdh_collector {
+            let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
+            pdh.add_process_counters(&pids);
+            let _ = pdh.update_process_gpu(&mut procs);
+        }
+        Some(procs)
     });
 
     let top_n_gpu = config.top_n_gpu.and_then(|n| {
-        get_top_n_processes(sysinfo_collector, n, |p| p.gpu_percent)
+        let mut procs = get_top_n_processes(sysinfo_collector, n, |p| p.gpu_percent);
+        // 为 top N GPU 进程添加 PDH counter 并更新 GPU 数据
+        if let Some(pdh) = pdh_collector {
+            let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
+            pdh.add_process_counters(&pids);
+            let _ = pdh.update_process_gpu(&mut procs);
+        }
+        Some(procs)
     });
 
     Sample {
