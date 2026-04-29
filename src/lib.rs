@@ -660,65 +660,47 @@ fn process_list_to_pylist(py: Python<'_>, processes: &[ProcessInfo]) -> PyResult
 ///
 /// 示例:
 ///     # 按 PID 筛选
-///     filter = ProcessFilter.by_pids([1234, 5678])
+///     filter = ProcessFilter(pids=[1234, 5678])
 ///
 ///     # 按进程名精确匹配
-///     filter = ProcessFilter.by_name("chrome.exe")
+///     filter = ProcessFilter(name="chrome.exe")
 ///
 ///     # 按进程名正则匹配
-///     filter = ProcessFilter.by_regex(r"chrome.*")
+///     filter = ProcessFilter(name_regex=r"chrome.*")
 #[pyclass(name = "ProcessFilter")]
 #[derive(Debug, Clone)]
 pub struct PyProcessFilter {
-    inner: Option<ProcessFilter>,
+    inner: ProcessFilter,
 }
 
 #[pymethods]
 impl PyProcessFilter {
     #[new]
-    fn new() -> Self {
-        Self { inner: None }
-    }
-
-    /// 按 PID 列表筛选进程
-    ///
-    /// # 参数
-    /// - `pids`: 进程 ID 列表
-    #[staticmethod]
-    fn by_pids(pids: Vec<u32>) -> Self {
-        Self {
-            inner: Some(ProcessFilter::Pids(pids)),
-        }
-    }
-
-    /// 按进程名精确匹配筛选
-    ///
-    /// # 参数
-    /// - `name`: 进程名称
-    #[staticmethod]
-    fn by_name(name: String) -> Self {
-        Self {
-            inner: Some(ProcessFilter::Name(name)),
-        }
-    }
-
-    /// 按进程名正则表达式筛选
-    ///
-    /// # 参数
-    /// - `pattern`: 正则表达式模式
-    #[staticmethod]
-    fn by_regex(pattern: String) -> Self {
-        Self {
-            inner: Some(ProcessFilter::NameRegex(pattern)),
-        }
+    #[pyo3(signature = (pids=None, name=None, name_regex=None))]
+    fn new(
+        pids: Option<Vec<u32>>,
+        name: Option<String>,
+        name_regex: Option<String>,
+    ) -> PyResult<Self> {
+        let inner = if let Some(pids) = pids {
+            ProcessFilter::Pids(pids)
+        } else if let Some(name) = name {
+            ProcessFilter::Name(name)
+        } else if let Some(pattern) = name_regex {
+            ProcessFilter::NameRegex(pattern)
+        } else {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Must specify one of: pids, name, or name_regex"
+            ));
+        };
+        Ok(Self { inner })
     }
 
     fn __repr__(&self) -> String {
         match &self.inner {
-            Some(ProcessFilter::Pids(pids)) => format!("ProcessFilter(pids={:?})", pids),
-            Some(ProcessFilter::Name(name)) => format!("ProcessFilter(name='{}')", name),
-            Some(ProcessFilter::NameRegex(pattern)) => format!("ProcessFilter(regex='{}')", pattern),
-            None => "ProcessFilter(none)".to_string(),
+            ProcessFilter::Pids(pids) => format!("ProcessFilter(pids={:?})", pids),
+            ProcessFilter::Name(name) => format!("ProcessFilter(name='{}')", name),
+            ProcessFilter::NameRegex(pattern) => format!("ProcessFilter(name_regex='{}')", pattern),
         }
     }
 }
@@ -787,7 +769,7 @@ impl PyMonitor {
         top_n_cpu: Option<usize>,
         top_n_gpu: Option<usize>,
     ) -> PyResult<Self> {
-        let filter = process_filter.and_then(|f| f.inner);
+        let filter = process_filter.map(|f| f.inner);
 
         let config = MonitorConfig {
             interval,
@@ -963,7 +945,7 @@ impl PyMonitor {
 ///     from perfdog import Monitor, ProcessFilter
 ///
 ///     # 创建进程筛选器
-///     filter = ProcessFilter.by_name("chrome.exe")
+///     filter = ProcessFilter(name="chrome.exe")
 ///
 ///     # 使用上下文管理器
 ///     with Monitor(interval=0.5, process_filter=filter) as m:
