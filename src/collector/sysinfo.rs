@@ -2,6 +2,7 @@
 
 use sysinfo::System;
 use crate::data::{ProcessInfo, SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, BatteryInfo};
+use std::time::Instant;
 
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
@@ -13,21 +14,42 @@ use windows::Win32::Foundation::CloseHandle;
 /// 进程级数据采集器
 pub struct SysinfoCollector {
     sys: System,
+    last_refresh_time: Option<Instant>,
 }
 
 impl SysinfoCollector {
     pub fn new() -> Self {
+        let mut sys = System::new_all();
+        // 初始化时先刷新一次，让后续 cpu_usage() 有正确的基准值
+        sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            sysinfo::ProcessRefreshKind::everything()
+        );
+
         Self {
-            sys: System::new_all(),
+            sys,
+            last_refresh_time: Some(Instant::now()),
         }
     }
 
-    /// 刷新进程信息
+    /// 刷新进程信息（需要间隔足够才能正确计算CPU使用率）
     pub fn refresh(&mut self) {
+        // sysinfo 的 cpu_usage() 需要在两次刷新之间有足够间隔
+        // 如果间隔太短（< 100ms），CPU 使用率计算不准确
+        let now = Instant::now();
+        if let Some(last) = self.last_refresh_time {
+            let elapsed = now.duration_since(last);
+            if elapsed < std::time::Duration::from_millis(100) {
+                // 间隔太短，跳过刷新，避免CPU使用率异常
+                return;
+            }
+        }
+
         self.sys.refresh_processes_specifics(
             sysinfo::ProcessesToUpdate::All,
             sysinfo::ProcessRefreshKind::everything()
         );
+        self.last_refresh_time = Some(now);
     }
 
     /// 获取所有进程信息

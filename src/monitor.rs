@@ -104,6 +104,9 @@ impl MonitorCore {
             let start_time = Instant::now();
             let interval = Duration::from_secs_f64(config.interval);
 
+            // 等待一个 interval，让 sysinfo 有足够时间计算正确的 CPU 使用率
+            thread::sleep(interval);
+
             // 主采集循环
             while running.load(Ordering::SeqCst) {
                 // 检查是否超时
