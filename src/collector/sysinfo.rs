@@ -1,7 +1,7 @@
 // sysinfo 采集器 - 进程级 CPU/内存/句柄
 
 use sysinfo::System;
-use crate::data::{ProcessInfo, SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo};
+use crate::data::{ProcessInfo, SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, BatteryInfo};
 
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
@@ -135,6 +135,10 @@ impl SysinfoCollector {
                 upload_speed: 0.0,
                 download_speed: 0.0,
             },
+            battery: BatteryInfo {
+                charge_level: 0.0,  // 由 HWiNFO 提供
+            },
+            system_power: 0.0,  // 由 HWiNFO 提供
         }
     }
 }

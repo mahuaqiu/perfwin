@@ -35,6 +35,12 @@ pub struct NetworkInfo {
     pub download_speed: f64,    // bytes/s
 }
 
+/// 电池信息（笔记本电脑）
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BatteryInfo {
+    pub charge_level: f64,      // 电量百分比 (0-100)
+}
+
 /// 系统级信息汇总
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SystemInfo {
@@ -42,6 +48,8 @@ pub struct SystemInfo {
     pub gpu: GPUInfo,
     pub memory: MemoryInfo,
     pub network: NetworkInfo,
+    pub battery: BatteryInfo,
+    pub system_power: f64,      // 系统总功耗 (W)
 }
 
 /// 进程级信息

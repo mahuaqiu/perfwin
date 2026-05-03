@@ -10,7 +10,7 @@ pub mod hwinfo_manager;
 pub mod monitor;
 
 use crate::data::{
-    CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, SystemInfo,
+    CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, SystemInfo, BatteryInfo,
     ProcessInfo, Sample, MonitorConfig, ProcessFilter,
 };
 use crate::monitor::MonitorCore;
@@ -248,12 +248,51 @@ impl From<NetworkInfo> for PyNetworkInfo {
 }
 
 // ----------------------------------------------------------------------------
+// PyBatteryInfo - 电池信息类
+// ----------------------------------------------------------------------------
+
+/// 电池信息类
+///
+/// 包含电池电量等信息（笔记本电脑）
+#[pyclass(name = "BatteryInfo")]
+#[derive(Debug, Clone)]
+pub struct PyBatteryInfo {
+    inner: BatteryInfo,
+}
+
+#[pymethods]
+impl PyBatteryInfo {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: BatteryInfo::default(),
+        }
+    }
+
+    /// 电池电量百分比 (0-100)
+    #[getter]
+    fn charge_level(&self) -> f64 {
+        self.inner.charge_level
+    }
+
+    fn __repr__(&self) -> String {
+        format!("BatteryInfo(charge={:.1}%)", self.inner.charge_level)
+    }
+}
+
+impl From<BatteryInfo> for PyBatteryInfo {
+    fn from(info: BatteryInfo) -> Self {
+        Self { inner: info }
+    }
+}
+
+// ----------------------------------------------------------------------------
 // PySystemInfo - 系统信息类
 // ----------------------------------------------------------------------------
 
 /// 系统信息类
 ///
-/// 包含 CPU、GPU、内存、网络等系统级性能数据
+/// 包含 CPU、GPU、内存、网络、电池等系统级性能数据
 #[pyclass(name = "SystemInfo")]
 #[derive(Debug, Clone)]
 pub struct PySystemInfo {
@@ -293,10 +332,23 @@ impl PySystemInfo {
         PyNetworkInfo::from(self.inner.network.clone())
     }
 
+    /// 电池信息
+    #[getter]
+    fn battery(&self) -> PyBatteryInfo {
+        PyBatteryInfo::from(self.inner.battery.clone())
+    }
+
+    /// 系统总功耗 (W)
+    #[getter]
+    fn system_power(&self) -> f64 {
+        self.inner.system_power
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "SystemInfo(cpu={:.1}%, gpu={:.1}%, memory={:.1}%)",
-            self.inner.cpu.percent, self.inner.gpu.percent, self.inner.memory.percent
+            "SystemInfo(cpu={:.1}%, gpu={:.1}%, memory={:.1}%, battery={:.1}%, power={:.1}W)",
+            self.inner.cpu.percent, self.inner.gpu.percent, self.inner.memory.percent,
+            self.inner.battery.charge_level, self.inner.system_power
         )
     }
 }
@@ -597,6 +649,12 @@ impl PySample {
             net_dict.set_item("upload_speed", system.network.upload_speed)?;
             net_dict.set_item("download_speed", system.network.download_speed)?;
             sys_dict.set_item("network", net_dict)?;
+
+            let battery_dict = PyDict::new_bound(py);
+            battery_dict.set_item("charge_level", system.battery.charge_level)?;
+            sys_dict.set_item("battery", battery_dict)?;
+
+            sys_dict.set_item("system_power", system.system_power)?;
 
             dict.set_item("system", sys_dict)?;
         }
@@ -979,6 +1037,7 @@ fn perfdog(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGPUInfo>()?;
     m.add_class::<PyMemoryInfo>()?;
     m.add_class::<PyNetworkInfo>()?;
+    m.add_class::<PyBatteryInfo>()?;
     m.add_class::<PySystemInfo>()?;
     m.add_class::<PyProcessInfo>()?;
     m.add_class::<PySample>()?;

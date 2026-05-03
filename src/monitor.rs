@@ -6,7 +6,7 @@ use chrono::Utc;
 use parking_lot::Mutex;
 use itertools::Itertools;
 
-use crate::data::{Sample, MonitorConfig, ProcessFilter, ProcessInfo, SystemInfo};
+use crate::data::{Sample, MonitorConfig, ProcessFilter, ProcessInfo};
 use crate::ring_buffer::RingBuffer;
 use crate::collector::{sysinfo::SysinfoCollector, pdh::PdhCollector, hwinfo::HWiNFOCollector};
 use crate::hwinfo_manager::HWiNFOManager;
@@ -216,9 +216,17 @@ fn collect_sample(
                 if hwinfo_data.gpu.percent > 0.0 {
                     system_info.gpu.percent = hwinfo_data.gpu.percent;
                 }
-                // 网络速度（如果 HWiNFO 提供）
+                // 网络速度
                 if hwinfo_data.network.upload_speed > 0.0 || hwinfo_data.network.download_speed > 0.0 {
                     system_info.network = hwinfo_data.network;
+                }
+                // 电池电量
+                if hwinfo_data.battery.charge_level > 0.0 {
+                    system_info.battery = hwinfo_data.battery;
+                }
+                // 系统总功耗
+                if hwinfo_data.system_power > 0.0 {
+                    system_info.system_power = hwinfo_data.system_power;
                 }
             }
         }

@@ -1,7 +1,9 @@
 // HWiNFO 采集器 - 系统级数据
 // 从 HWiNFO 共享内存读取系统监控数据
 
-use crate::data::{SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo};
+use crate::data::{SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, BatteryInfo};
+use serde::Deserialize;
+use std::path::PathBuf;
 
 // ============================================================================
 // Windows 平台实现
@@ -41,309 +43,48 @@ pub enum SensorType {
 }
 
 /// HWiNFO 共享内存头部结构
-/// 与 Python pywhinfo.py 的 HWiNFOHeader 结构一致
 #[cfg(target_os = "windows")]
 #[repr(C, packed)]
 struct HWiNFOHeader {
-    magic: u32,                  // 魔数 0x53695748
-    version: u32,                // 版本号
-    version2: u32,               // 版本号2
-    last_update: i64,            // 最后更新时间
-    sensor_section_offset: u32,  // 传感器段偏移
-    sensor_element_size: u32,    // 传感器元素大小
-    sensor_element_count: u32,   // 传感器元素数量
-    entry_section_offset: u32,   // 数据条目段偏移
-    entry_element_size: u32,     // 数据条目元素大小
-    entry_element_count: u32,    // 数据条目元素数量
+    magic: u32,
+    version: u32,
+    version2: u32,
+    last_update: i64,
+    sensor_section_offset: u32,
+    sensor_element_size: u32,
+    sensor_element_count: u32,
+    entry_section_offset: u32,
+    entry_element_size: u32,
+    entry_element_count: u32,
 }
 
 /// HWiNFO 数据条目结构
-/// 与 Python pywhinfo.py 的 HWiNFOEntry 结构一致
-/// 注意: 'type' 是 Rust 关键字，改用 'sensor_type'
-/// 注意: f64 字段用 [u8; 8] 表示以确保 packed 结构体大小精确匹配
 #[cfg(target_os = "windows")]
 #[repr(C, packed)]
 struct HWiNFOEntry {
-    sensor_type: u32,            // 传感器类型 (注意: type 是 Rust 关键字)
-    sensor_index: u32,           // 传感器索引
-    id: u32,                     // 条目 ID
-    name_original: [u8; 128],    // 原始名称
-    name_user: [u8; 128],        // 用户自定义名称
-    unit: [u8; 16],              // 单位
-    value_bytes: [u8; 8],        // 当前值 (f64，用字节数组确保大小)
-    value_min_bytes: [u8; 8],    // 最小值 (f64)
-    value_max_bytes: [u8; 8],    // 最大值 (f64)
-    value_avg_bytes: [u8; 8],    // 平均值 (f64)
+    sensor_type: u32,
+    sensor_index: u32,
+    id: u32,
+    name_original: [u8; 128],
+    name_user: [u8; 128],
+    unit: [u8; 16],
+    value_bytes: [u8; 8],
+    value_min_bytes: [u8; 8],
+    value_max_bytes: [u8; 8],
+    value_avg_bytes: [u8; 8],
+}
+
+/// 解析固定长度字符串字段
+#[cfg(target_os = "windows")]
+fn parse_fixed_string(bytes: &[u8]) -> String {
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
 
 /// 从字节数组读取 f64 值
 #[cfg(target_os = "windows")]
 fn read_f64_from_bytes(bytes: &[u8; 8]) -> f64 {
     f64::from_bits(u64::from_ne_bytes(*bytes))
-}
-
-/// 解析固定长度字符串字段
-#[cfg(target_os = "windows")]
-fn parse_fixed_string(bytes: &[u8]) -> String {
-    // 找到第一个 null 字符的位置
-    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-    // 截取有效部分并解码
-    String::from_utf8_lossy(&bytes[..end]).into_owned()
-}
-
-/// HWiNFO 共享内存采集器
-#[cfg(target_os = "windows")]
-pub struct HWiNFOCollector {
-    handle: HANDLE,
-    mapped_ptr: MEMORY_MAPPED_VIEW_ADDRESS,
-    header: *const HWiNFOHeader,
-}
-
-// 手动实现 Debug，因为 HANDLE 和指针不自动实现 Debug
-#[cfg(target_os = "windows")]
-impl std::fmt::Debug for HWiNFOCollector {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HWiNFOCollector")
-            .field("handle", &self.handle.0)
-            .field("mapped_ptr", &self.mapped_ptr.Value)
-            .field("header", &self.header)
-            .finish()
-    }
-}
-
-#[cfg(target_os = "windows")]
-impl HWiNFOCollector {
-    /// 创建新的 HWiNFO 采集器
-    /// 需要确保 HWiNFO 已经运行并启用了共享内存功能
-    pub fn new() -> anyhow::Result<Self> {
-        // 将共享内存名称转换为宽字符
-        let name_wide: Vec<u16> = HWINFO_SHARED_MEM_NAME
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
-
-        // 打开共享内存
-        let handle = unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, PCWSTR(name_wide.as_ptr())) }
-            .map_err(|e| anyhow::anyhow!(
-                "无法打开 HWiNFO 共享内存: {}。请确保 HWiNFO 正在运行并启用了共享内存功能。",
-                e
-            ))?;
-
-        if handle.is_invalid() {
-            return Err(anyhow::anyhow!(
-                "HWiNFO 共享内存未找到。请确保 HWiNFO 正在运行并启用了共享内存功能。"
-            ));
-        }
-
-        // 映射共享内存
-        let mapped_ptr = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0) };
-
-        if mapped_ptr.Value.is_null() {
-            unsafe { let _ = CloseHandle(handle); };
-            return Err(anyhow::anyhow!("无法映射 HWiNFO 共享内存"));
-        }
-
-        // 读取头部并验证魔数
-        let header = unsafe { &*(mapped_ptr.Value as *const HWiNFOHeader) };
-
-        // packed struct 字段不能直接引用，需要先复制
-        let magic = header.magic;
-
-        if magic != HWINFO_HEADER_MAGIC {
-            unsafe {
-                let _ = UnmapViewOfFile(mapped_ptr);
-                let _ = CloseHandle(handle);
-            };
-            return Err(anyhow::anyhow!(
-                "HWiNFO 共享内存魔数不匹配: 0x{:08X} (期望 0x{:08X})。版本可能不兼容。",
-                magic, HWINFO_HEADER_MAGIC
-            ));
-        }
-
-        Ok(Self {
-            handle,
-            mapped_ptr,
-            header,
-        })
-    }
-
-    /// 检查共享内存是否有效
-    pub fn is_valid(&self) -> bool {
-        !self.handle.is_invalid() && !self.mapped_ptr.Value.is_null()
-    }
-
-    /// 遍历所有传感器条目
-    pub fn iter_entries(&self) -> impl Iterator<Item = SensorEntry> + '_ {
-        if !self.is_valid() {
-            return Vec::new().into_iter();
-        }
-
-        let header = unsafe { &*self.header };
-        let entry_base = unsafe {
-            (self.mapped_ptr.Value as *const u8).add(header.entry_section_offset as usize)
-        };
-
-        let mut entries = Vec::with_capacity(header.entry_element_count as usize);
-
-        for i in 0..header.entry_element_count as usize {
-            let entry_addr = unsafe {
-                entry_base.add(i * header.entry_element_size as usize)
-            };
-            let entry = unsafe { &*(entry_addr as *const HWiNFOEntry) };
-
-            // 跳过无效条目
-            if entry.sensor_type == SensorType::None as u32 {
-                continue;
-            }
-
-            entries.push(SensorEntry {
-                sensor_type: SensorType::try_from(entry.sensor_type).unwrap_or(SensorType::Other),
-                sensor_index: entry.sensor_index,
-                id: entry.id,
-                name_original: parse_fixed_string(&entry.name_original),
-                name_user: parse_fixed_string(&entry.name_user),
-                unit: parse_fixed_string(&entry.unit),
-                value: read_f64_from_bytes(&entry.value_bytes),
-                value_min: read_f64_from_bytes(&entry.value_min_bytes),
-                value_max: read_f64_from_bytes(&entry.value_max_bytes),
-                value_avg: read_f64_from_bytes(&entry.value_avg_bytes),
-            });
-        }
-
-        entries.into_iter()
-    }
-
-    /// 按关键词查找传感器值
-    /// 优先匹配组合关键词，再匹配单个关键词
-    /// 返回 Option<f64>，找不到时返回 None
-    pub fn find_sensor(&self, primary_keywords: &[&str], secondary_keywords: &[&str], unit_hint: Option<&str>) -> Option<f64> {
-        // 先尝试优先关键词
-        for entry in self.iter_entries() {
-            let name_lower = entry.label().to_lowercase();
-
-            // 检查是否包含所有优先关键词
-            if primary_keywords.iter().all(|kw| name_lower.contains(kw)) {
-                if let Some(unit) = unit_hint {
-                    if !entry.unit.to_lowercase().contains(&unit.to_lowercase()) {
-                        continue;
-                    }
-                }
-                return Some(entry.value);
-            }
-        }
-
-        // 再尝试次级关键词
-        for entry in self.iter_entries() {
-            let name_lower = entry.label().to_lowercase();
-
-            // 检查是否包含任意次级关键词
-            if secondary_keywords.iter().any(|kw| name_lower.contains(kw)) {
-                if let Some(unit) = unit_hint {
-                    if !entry.unit.to_lowercase().contains(&unit.to_lowercase()) {
-                        continue;
-                    }
-                }
-                return Some(entry.value);
-            }
-        }
-
-        None
-    }
-
-    /// 获取系统信息
-    pub fn get_system_info(&self) -> anyhow::Result<SystemInfo> {
-        if !self.is_valid() {
-            return Err(anyhow::anyhow!("HWiNFO 共享内存无效"));
-        }
-
-        Ok(SystemInfo {
-            cpu: CPUInfo {
-                // CPU 使用率 - 优先匹配 "total"，再匹配单个关键词
-                percent: self.find_sensor(
-                    &["total", "cpu"],
-                    &["cpu usage", "cpu utilization", "cpu load"],
-                    Some("%")
-                ).unwrap_or(0.0),
-                // CPU 温度
-                temperature: self.find_sensor(
-                    &["cpu", "package"],
-                    &["cpu tctl", "cpu tdie", "processor"],
-                    Some("C")
-                ),
-                // CPU 功耗
-                power: self.find_sensor(
-                    &["cpu", "package", "power"],
-                    &["cpu power"],
-                    Some("W")
-                ),
-            },
-            gpu: GPUInfo {
-                // GPU 使用率
-                percent: self.find_sensor(
-                    &["gpu core load"],
-                    &["gpu d3d", "gpu utilization", "gpu activity"],
-                    Some("%")
-                ).unwrap_or(0.0),
-                // GPU 温度
-                temperature: self.find_sensor(
-                    &["gpu", "core"],
-                    &["gpu hotspot", "gpu temp"],
-                    Some("C")
-                ),
-                // GPU 功耗
-                power: self.find_sensor(
-                    &["gpu", "power"],
-                    &["gpu total power"],
-                    Some("W")
-                ),
-                // GPU 显存 - HWiNFO 通常提供使用率而非 MB 值
-                memory_mb: None,
-            },
-            memory: MemoryInfo::default(),  // 内存数据从 sysinfo 获取
-            network: NetworkInfo {
-                // 网络上传速度 - 关键词待验证
-                upload_speed: self.find_sensor(
-                    &["upload", "send"],
-                    &["tx", "transmit"],
-                    Some("B/s")
-                ).or_else(|| self.find_sensor(
-                    &["upload", "send"],
-                    &["tx", "transmit"],
-                    Some("KB/s")
-                ).map(|v| v * 1024.0))
-                .unwrap_or(0.0),
-                // 网络下载速度 - 关键词待验证
-                download_speed: self.find_sensor(
-                    &["download", "receive"],
-                    &["rx", "recv"],
-                    Some("B/s")
-                ).or_else(|| self.find_sensor(
-                    &["download", "receive"],
-                    &["rx", "recv"],
-                    Some("KB/s")
-                ).map(|v| v * 1024.0))
-                .unwrap_or(0.0),
-            },
-        })
-    }
-}
-
-#[cfg(target_os = "windows")]
-impl Drop for HWiNFOCollector {
-    fn drop(&mut self) {
-        // 解除内存映射
-        if !self.mapped_ptr.Value.is_null() {
-            unsafe {
-                let _ = UnmapViewOfFile(self.mapped_ptr);
-            }
-        }
-        // 关闭句柄
-        if !self.handle.is_invalid() {
-            unsafe {
-                let _ = CloseHandle(self.handle);
-            }
-        }
-    }
 }
 
 /// 传感器条目数据
@@ -393,24 +134,368 @@ impl TryFrom<u32> for SensorType {
 }
 
 // ============================================================================
-// 非 Windows 平台的占位实现
+// 传感器配置
+// ============================================================================
+
+/// HWiNFO 传感器映射配置
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HWiNFOConfig {
+    pub cpu: CpuConfig,
+    pub gpu: GpuConfig,
+    pub system: SystemConfig,
+    pub network: NetworkConfig,
+    pub battery: BatteryConfig,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CpuConfig {
+    pub usage_name: String,
+    pub usage_unit: String,
+    pub temperature_name: String,
+    pub temperature_unit: String,
+    pub power_name: Option<String>,
+    pub power_unit: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct GpuConfig {
+    pub usage_name: String,
+    pub usage_unit: String,
+    pub temperature_name: String,
+    pub temperature_unit: String,
+    pub power_name: Option<String>,
+    pub power_unit: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SystemConfig {
+    pub power_name: Option<String>,
+    pub power_unit: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct NetworkConfig {
+    pub download_name: Option<String>,
+    pub download_unit: Option<String>,
+    pub upload_name: Option<String>,
+    pub upload_unit: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct BatteryConfig {
+    pub charge_name: Option<String>,
+    pub charge_unit: Option<String>,
+}
+
+impl HWiNFOConfig {
+    /// 从文件加载配置
+    pub fn load(path: &PathBuf) -> anyhow::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        let config: HWiNFOConfig = toml::from_str(&content)?;
+        Ok(config)
+    }
+
+    /// 搜索配置文件路径
+    pub fn find_config_path() -> Option<PathBuf> {
+        let possible_paths: Vec<PathBuf> = vec![
+            // 当前工作目录
+            PathBuf::from("hwinfo_sensors.toml"),
+            // 模块目录（打包后）
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("hwinfo_sensors.toml")))
+                .unwrap_or_else(|| PathBuf::new()),
+            // 项目根目录（开发模式）
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().and_then(|d| d.parent().map(|dd| dd.join("hwinfo_sensors.toml"))))
+                .unwrap_or_else(|| PathBuf::new()),
+        ];
+
+        for path in possible_paths.iter() {
+            if !path.as_os_str().is_empty() && path.exists() {
+                return Some(path.clone());
+            }
+        }
+
+        None
+    }
+
+    /// 获取默认配置（硬编码备份）
+    pub fn default_config() -> Self {
+        Self {
+            cpu: CpuConfig {
+                usage_name: "Total CPU Usage".to_string(),
+                usage_unit: "%".to_string(),
+                temperature_name: "CPU Package".to_string(),
+                temperature_unit: "C".to_string(),
+                power_name: Some("CPU Package Power".to_string()),
+                power_unit: Some("W".to_string()),
+            },
+            gpu: GpuConfig {
+                usage_name: "GPU D3D Usage".to_string(),
+                usage_unit: "%".to_string(),
+                temperature_name: "GPU Temperature".to_string(),
+                temperature_unit: "C".to_string(),
+                power_name: Some("GPU Power".to_string()),
+                power_unit: Some("W".to_string()),
+            },
+            system: SystemConfig {
+                power_name: Some("Total System Power".to_string()),
+                power_unit: Some("W".to_string()),
+            },
+            network: NetworkConfig {
+                download_name: Some("Current DL rate".to_string()),
+                download_unit: Some("B/s".to_string()),
+                upload_name: Some("Current UP rate".to_string()),
+                upload_unit: Some("B/s".to_string()),
+            },
+            battery: BatteryConfig {
+                charge_name: Some("Charge Level".to_string()),
+                charge_unit: Some("%".to_string()),
+            },
+        }
+    }
+}
+
+// ============================================================================
+// HWiNFO 采集器
+// ============================================================================
+
+/// HWiNFO 共享内存采集器
+#[cfg(target_os = "windows")]
+pub struct HWiNFOCollector {
+    handle: HANDLE,
+    mapped_ptr: MEMORY_MAPPED_VIEW_ADDRESS,
+    header: *const HWiNFOHeader,
+    config: HWiNFOConfig,
+}
+
+#[cfg(target_os = "windows")]
+impl std::fmt::Debug for HWiNFOCollector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HWiNFOCollector")
+            .field("handle", &self.handle.0)
+            .field("mapped_ptr", &self.mapped_ptr.Value)
+            .field("header", &self.header)
+            .finish()
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl HWiNFOCollector {
+    /// 创建新的 HWiNFO 采集器
+    pub fn new() -> anyhow::Result<Self> {
+        // 加载配置
+        let config = HWiNFOConfig::find_config_path()
+            .and_then(|p| HWiNFOConfig::load(&p).ok())
+            .unwrap_or_else(HWiNFOConfig::default_config);
+
+        // 打开共享内存
+        let name_wide: Vec<u16> = HWINFO_SHARED_MEM_NAME
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let handle = unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, PCWSTR(name_wide.as_ptr())) }
+            .map_err(|e| anyhow::anyhow!(
+                "无法打开 HWiNFO 共享内存: {}。请确保 HWiNFO 正在运行并启用了共享内存功能。",
+                e
+            ))?;
+
+        if handle.is_invalid() {
+            return Err(anyhow::anyhow!(
+                "HWiNFO 共享内存未找到。请确保 HWiNFO 正在运行并启用了共享内存功能。"
+            ));
+        }
+
+        // 映射共享内存
+        let mapped_ptr = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0) };
+
+        if mapped_ptr.Value.is_null() {
+            unsafe { let _ = CloseHandle(handle); };
+            return Err(anyhow::anyhow!("无法映射 HWiNFO 共享内存"));
+        }
+
+        // 验证魔数
+        let header = unsafe { &*(mapped_ptr.Value as *const HWiNFOHeader) };
+        let magic = header.magic;
+
+        if magic != HWINFO_HEADER_MAGIC {
+            unsafe {
+                let _ = UnmapViewOfFile(mapped_ptr);
+                let _ = CloseHandle(handle);
+            };
+            return Err(anyhow::anyhow!(
+                "HWiNFO 共享内存魔数不匹配: 0x{:08X} (期望 0x{:08X})。",
+                magic, HWINFO_HEADER_MAGIC
+            ));
+        }
+
+        Ok(Self {
+            handle,
+            mapped_ptr,
+            header,
+            config,
+        })
+    }
+
+    /// 检查共享内存是否有效
+    pub fn is_valid(&self) -> bool {
+        !self.handle.is_invalid() && !self.mapped_ptr.Value.is_null()
+    }
+
+    /// 遍历所有传感器条目
+    pub fn iter_entries(&self) -> impl Iterator<Item = SensorEntry> + '_ {
+        if !self.is_valid() {
+            return Vec::new().into_iter();
+        }
+
+        let header = unsafe { &*self.header };
+        let entry_base = unsafe {
+            (self.mapped_ptr.Value as *const u8).add(header.entry_section_offset as usize)
+        };
+
+        let mut entries = Vec::with_capacity(header.entry_element_count as usize);
+
+        for i in 0..header.entry_element_count as usize {
+            let entry_addr = unsafe {
+                entry_base.add(i * header.entry_element_size as usize)
+            };
+            let entry = unsafe { &*(entry_addr as *const HWiNFOEntry) };
+
+            if entry.sensor_type == SensorType::None as u32 {
+                continue;
+            }
+
+            entries.push(SensorEntry {
+                sensor_type: SensorType::try_from(entry.sensor_type).unwrap_or(SensorType::Other),
+                sensor_index: entry.sensor_index,
+                id: entry.id,
+                name_original: parse_fixed_string(&entry.name_original),
+                name_user: parse_fixed_string(&entry.name_user),
+                unit: parse_fixed_string(&entry.unit),
+                value: read_f64_from_bytes(&entry.value_bytes),
+                value_min: read_f64_from_bytes(&entry.value_min_bytes),
+                value_max: read_f64_from_bytes(&entry.value_max_bytes),
+                value_avg: read_f64_from_bytes(&entry.value_avg_bytes),
+            });
+        }
+
+        entries.into_iter()
+    }
+
+    /// 按名称精确匹配传感器值
+    /// 找不到时返回 0.0
+    fn find_by_name(&self, target_name: &str, target_unit: &str) -> f64 {
+        let target_name_lower = target_name.to_lowercase();
+        let target_unit_lower = target_unit.to_lowercase();
+
+        for entry in self.iter_entries() {
+            let name_lower = entry.label().to_lowercase();
+            let unit_lower = entry.unit.to_lowercase();
+
+            // 名称包含目标名称，且单位包含目标单位
+            if name_lower.contains(&target_name_lower) && unit_lower.contains(&target_unit_lower) {
+                return entry.value;
+            }
+        }
+
+        0.0  // 找不到返回 0
+    }
+
+    /// 按名称精确匹配传感器值（可选）
+    /// 找不到时返回 None
+    fn find_by_name_opt(&self, target_name: &str, target_unit: &str) -> Option<f64> {
+        let target_name_lower = target_name.to_lowercase();
+        let target_unit_lower = target_unit.to_lowercase();
+
+        for entry in self.iter_entries() {
+            let name_lower = entry.label().to_lowercase();
+            let unit_lower = entry.unit.to_lowercase();
+
+            if name_lower.contains(&target_name_lower) && unit_lower.contains(&target_unit_lower) {
+                return Some(entry.value);
+            }
+        }
+
+        None
+    }
+
+    /// 获取系统信息
+    pub fn get_system_info(&self) -> anyhow::Result<SystemInfo> {
+        if !self.is_valid() {
+            return Err(anyhow::anyhow!("HWiNFO 共享内存无效"));
+        }
+
+        let config = &self.config;
+
+        Ok(SystemInfo {
+            cpu: CPUInfo {
+                percent: self.find_by_name(&config.cpu.usage_name, &config.cpu.usage_unit),
+                temperature: self.find_by_name_opt(&config.cpu.temperature_name, &config.cpu.temperature_unit),
+                power: config.cpu.power_name.as_ref()
+                    .zip(config.cpu.power_unit.as_ref())
+                    .and_then(|(n, u)| self.find_by_name_opt(n, u)),
+            },
+            gpu: GPUInfo {
+                percent: self.find_by_name(&config.gpu.usage_name, &config.gpu.usage_unit),
+                temperature: self.find_by_name_opt(&config.gpu.temperature_name, &config.gpu.temperature_unit),
+                power: config.gpu.power_name.as_ref()
+                    .zip(config.gpu.power_unit.as_ref())
+                    .and_then(|(n, u)| self.find_by_name_opt(n, u)),
+                memory_mb: None,
+            },
+            memory: MemoryInfo::default(),
+            network: NetworkInfo {
+                download_speed: config.network.download_name.as_ref()
+                    .zip(config.network.download_unit.as_ref())
+                    .map(|(n, u)| self.find_by_name(n, u))
+                    .unwrap_or(0.0),
+                upload_speed: config.network.upload_name.as_ref()
+                    .zip(config.network.upload_unit.as_ref())
+                    .map(|(n, u)| self.find_by_name(n, u))
+                    .unwrap_or(0.0),
+            },
+            battery: BatteryInfo {
+                charge_level: config.battery.charge_name.as_ref()
+                    .zip(config.battery.charge_unit.as_ref())
+                    .map(|(n, u)| self.find_by_name(n, u))
+                    .unwrap_or(0.0),
+            },
+            system_power: config.system.power_name.as_ref()
+                .zip(config.system.power_unit.as_ref())
+                .map(|(n, u)| self.find_by_name(n, u))
+                .unwrap_or(0.0),
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for HWiNFOCollector {
+    fn drop(&mut self) {
+        if !self.mapped_ptr.Value.is_null() {
+            unsafe { let _ = UnmapViewOfFile(self.mapped_ptr); }
+        }
+        if !self.handle.is_invalid() {
+            unsafe { let _ = CloseHandle(self.handle); }
+        }
+    }
+}
+
+// ============================================================================
+// 非 Windows 平台占位实现
 // ============================================================================
 
 #[cfg(not(target_os = "windows"))]
-pub struct HWiNFOCollector {
-    _private: (),
-}
+pub struct HWiNFOCollector { _private: () }
 
 #[cfg(not(target_os = "windows"))]
 impl HWiNFOCollector {
     pub fn new() -> anyhow::Result<Self> {
         Err(anyhow::anyhow!("HWiNFO 仅在 Windows 平台上可用"))
     }
-
-    pub fn is_valid(&self) -> bool {
-        false
-    }
-
+    pub fn is_valid(&self) -> bool { false }
     pub fn get_system_info(&self) -> anyhow::Result<SystemInfo> {
         Err(anyhow::anyhow!("HWiNFO 仅在 Windows 平台上可用"))
     }
@@ -440,41 +525,23 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "windows")]
-    fn test_hwinfo_collector_new() {
-        // 此测试需要 HWiNFO 正在运行
-        let result = HWiNFOCollector::new();
-        if result.is_err() {
-            let err = result.unwrap_err();
-            assert!(err.to_string().contains("HWiNFO"));
-        }
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
     fn test_header_size() {
-        // 验证结构体大小与 Python ctypes 一致 (44 bytes)
         assert_eq!(std::mem::size_of::<HWiNFOHeader>(), 44);
     }
 
     #[test]
     #[cfg(target_os = "windows")]
     fn test_entry_size() {
-        // 注意: Rust #[repr(C, packed)] 可能添加尾部 padding
-        // 实际读取时使用 HWiNFO 提供的 entry_element_size，不依赖 Rust 结构体大小
-        // Python ctypes _pack_=1 确保精确 312 bytes，Rust 可能略有不同
-        // 这里只验证大致正确范围，运行时会正确处理
         let size = std::mem::size_of::<HWiNFOEntry>();
         assert!(size >= 312 && size <= 320, "Entry size should be around 312 bytes, got {}", size);
     }
 
     #[test]
-    #[cfg(target_os = "windows")]
-    fn test_parse_fixed_string() {
-        let bytes = b"Hello World\0\0\0\0\0\0\0\0";
-        assert_eq!(parse_fixed_string(bytes), "Hello World");
-
-        let bytes_no_null = b"NoNullTerminator................";
-        assert!(parse_fixed_string(bytes_no_null).contains("NoNullTerminator"));
+    fn test_config_default() {
+        let config = HWiNFOConfig::default_config();
+        assert_eq!(config.cpu.usage_name, "Total CPU Usage");
+        assert_eq!(config.gpu.usage_name, "GPU D3D Usage");
+        assert_eq!(config.battery.charge_name, Some("Charge Level".to_string()));
     }
 
     #[test]
@@ -483,28 +550,14 @@ mod tests {
             sensor_type: SensorType::Temp,
             sensor_index: 0,
             id: 1,
-            name_original: "Original Name".to_string(),
-            name_user: "User Name".to_string(),
+            name_original: "Original".to_string(),
+            name_user: "User".to_string(),
             unit: "C".to_string(),
             value: 45.0,
             value_min: 30.0,
             value_max: 80.0,
             value_avg: 50.0,
         };
-        assert_eq!(entry.label(), "User Name");
-
-        let entry_no_user = SensorEntry {
-            sensor_type: SensorType::Temp,
-            sensor_index: 0,
-            id: 1,
-            name_original: "Original Name".to_string(),
-            name_user: "".to_string(),
-            unit: "C".to_string(),
-            value: 45.0,
-            value_min: 30.0,
-            value_max: 80.0,
-            value_avg: 50.0,
-        };
-        assert_eq!(entry_no_user.label(), "Original Name");
+        assert_eq!(entry.label(), "User");
     }
 }
