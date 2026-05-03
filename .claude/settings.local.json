@@ -5,7 +5,16 @@
       "Bash(maturin develop *)",
       "PowerShell(Get-Command *)",
       "PowerShell(cmd /c \"git --version\" 2>&1)",
-      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; git status)"
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; git status)",
+      "PowerShell(New-Item *)",
+      "PowerShell(Stop-Process *)",
+      "PowerShell(taskkill *)",
+      "PowerShell(tasklist *)",
+      "PowerShell(cmd /c \"cd /d D:\\\\code\\\\perfwin && git status\" 2>&1)",
+      "PowerShell(Test-Path *)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); where.exe git 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; D:\\\\code\\\\Git\\\\cmd\\\\git.exe status 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; D:\\\\code\\\\Git\\\\cmd\\\\git.exe add src/collector/hwinfo.rs src/collector/sysinfo.rs src/hwinfo_manager.rs src/lib.rs src/monitor.rs python/perfdog/__init__.py pyproject.toml examples/basic_usage.py docs/superpowers/specs/2026-05-03-hwinfo-shared-memory-design.md 2>&1)"
     ]
   }
 }
