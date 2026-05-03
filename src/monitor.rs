@@ -134,7 +134,7 @@ impl MonitorCore {
         }
 
         // 停止 HWiNFO 管理器
-        if let Some(manager) = self.hwinfo_manager.lock().take() {
+        if let Some(mut manager) = self.hwinfo_manager.lock().take() {
             manager.stop()?;
         }
 
@@ -310,7 +310,7 @@ fn get_top_n_processes<F>(
 where
     F: Fn(&ProcessInfo) -> f64,
 {
-    let mut all_procs = sysinfo_collector.get_all_processes();
+    let all_procs = sysinfo_collector.get_all_processes();
 
     // 使用 itertools 的 sorted_by 进行排序（降序）
     all_procs

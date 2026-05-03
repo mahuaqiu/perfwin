@@ -4,12 +4,22 @@
 #[cfg(target_os = "windows")]
 use std::collections::HashMap;
 #[cfg(target_os = "windows")]
-use windows::core::PCWSTR;
+use windows::core::PCSTR;
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Performance::{
-    PdhAddCounter, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterValue, PdhOpenQuery,
-    PdhRemoveCounter, PDH_FMT_COUNTER_VALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY,
+    PdhAddCounterA, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterValue, PdhOpenQueryA,
+    PdhRemoveCounter, PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE,
 };
+
+/// PDH 查询句柄（windows 0.58 使用 isize）
+#[cfg(target_os = "windows")]
+#[allow(non_camel_case_types)]
+type PDH_HQUERY = isize;
+
+/// PDH 计数器句柄（windows 0.58 使用 isize）
+#[cfg(target_os = "windows")]
+#[allow(non_camel_case_types)]
+type PDH_HCOUNTER = isize;
 
 #[cfg(target_os = "windows")]
 use crate::data::ProcessInfo;
@@ -25,9 +35,11 @@ pub struct PdhCollector {
 impl PdhCollector {
     /// 创建新的 PDH 采集器
     pub fn new() -> anyhow::Result<Self> {
-        let mut query = PDH_HQUERY::default();
-        unsafe { PdhOpenQuery(None, 0, &mut query) }
-            .map_err(|e| anyhow::anyhow!("PdhOpenQuery failed: {}", e))?;
+        let mut query: PDH_HQUERY = 0;
+        let result = unsafe { PdhOpenQueryA(None, 0, &mut query) };
+        if result != 0 {
+            return Err(anyhow::anyhow!("PdhOpenQuery failed with error code: {}", result));
+        }
 
         Ok(Self {
             query,
@@ -45,11 +57,14 @@ impl PdhCollector {
         }
 
         let counter_path = format!("\\GPU Engine(pid_{}*)\\Utilization Percentage", pid);
-        let path_wide: Vec<u16> = counter_path.encode_utf16().chain(std::iter::once(0)).collect();
+        // PdhAddCounterA 使用 ANSI 字符串
+        let path_bytes: Vec<u8> = counter_path.bytes().chain(std::iter::once(0)).collect();
 
-        let mut counter = PDH_HCOUNTER::default();
-        unsafe { PdhAddCounter(self.query, PCWSTR(path_wide.as_ptr()), 0, &mut counter) }
-            .map_err(|e| anyhow::anyhow!("PdhAddCounter failed for pid {}: {}", pid, e))?;
+        let mut counter: PDH_HCOUNTER = 0;
+        let result = unsafe { PdhAddCounterA(self.query, PCSTR(path_bytes.as_ptr()), 0, &mut counter) };
+        if result != 0 {
+            return Err(anyhow::anyhow!("PdhAddCounter failed for pid {} with error code: {}", pid, result));
+        }
 
         self.counters.insert(pid, counter);
         Ok(())
@@ -67,17 +82,18 @@ impl PdhCollector {
 
     /// 收集 GPU 数据
     pub fn collect(&mut self) -> anyhow::Result<HashMap<u32, f64>> {
-        unsafe { PdhCollectQueryData(self.query) }
-            .map_err(|e| anyhow::anyhow!("PdhCollectQueryData failed: {}", e))?;
+        let result = unsafe { PdhCollectQueryData(self.query) };
+        if result != 0 {
+            return Err(anyhow::anyhow!("PdhCollectQueryData failed with error code: {}", result));
+        }
 
         let mut results = HashMap::new();
         for (pid, counter) in &self.counters {
-            let mut value = PDH_FMT_COUNTER_VALUE::default();
+            let mut value = PDH_FMT_COUNTERVALUE::default();
             unsafe {
                 let _ = PdhGetFormattedCounterValue(*counter, PDH_FMT_DOUBLE, None, &mut value);
+                results.insert(*pid, value.Anonymous.doubleValue);
             }
-
-            results.insert(*pid, value.doubleValue);
         }
 
         Ok(results)
@@ -120,7 +136,9 @@ impl PdhCollector {
 impl Drop for PdhCollector {
     fn drop(&mut self) {
         // 正确关闭 PDH query，释放资源
-        let _ = unsafe { PdhCloseQuery(self.query) };
+        if self.query != 0 {
+            let _ = unsafe { PdhCloseQuery(self.query) };
+        }
     }
 }
 

@@ -8,7 +8,7 @@ use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::{OpenProcess, GetProcessHandleCount, PROCESS_QUERY_LIMITED_INFORMATION};
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{CloseHandle, BOOL, HANDLE};
+use windows::Win32::Foundation::CloseHandle;
 
 /// 进程级数据采集器
 pub struct SysinfoCollector {
@@ -26,7 +26,6 @@ impl SysinfoCollector {
     pub fn refresh(&mut self) {
         self.sys.refresh_processes_specifics(
             sysinfo::ProcessesToUpdate::All,
-            true,
             sysinfo::ProcessRefreshKind::everything()
         );
     }
@@ -41,7 +40,7 @@ impl SysinfoCollector {
                     .unwrap_or((0.0, 0));
                 ProcessInfo {
                     pid: pid.as_u32(),
-                    name: proc.name().to_string(),
+                    name: proc.name().to_string_lossy().to_string(),
                     cpu_percent: proc.cpu_usage() as f64,
                     working_set_mb: proc.memory() as f64 / 1024.0 / 1024.0,
                     committed_memory_mb,
@@ -62,7 +61,7 @@ impl SysinfoCollector {
                 .unwrap_or((0.0, 0));
             ProcessInfo {
                 pid,
-                name: proc.name().to_string(),
+                name: proc.name().to_string_lossy().to_string(),
                 cpu_percent: proc.cpu_usage() as f64,
                 working_set_mb: proc.memory() as f64 / 1024.0 / 1024.0,
                 committed_memory_mb,
@@ -84,7 +83,7 @@ impl SysinfoCollector {
                     .unwrap_or((0.0, 0));
                 ProcessInfo {
                     pid: pid.as_u32(),
-                    name: proc.name().to_string(),
+                    name: proc.name().to_string_lossy().to_string(),
                     cpu_percent: proc.cpu_usage() as f64,
                     working_set_mb: proc.memory() as f64 / 1024.0 / 1024.0,
                     committed_memory_mb,
@@ -106,7 +105,8 @@ impl Default for SysinfoCollector {
 /// 获取进程提交内存和句柄数（Windows API）
 #[cfg(target_os = "windows")]
 pub fn get_process_memory_and_handles(pid: u32) -> Option<(f64, u32)> {
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, BOOL::from(false), pid) };
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
+    let handle = handle.ok()?;
     if handle.is_invalid() {
         return None;
     }

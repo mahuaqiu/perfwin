@@ -1,7 +1,7 @@
 // 数据采集模块
-mod sysinfo;
-mod pdh;
-mod hwinfo;
+pub mod sysinfo;
+pub mod pdh;
+pub mod hwinfo;
 
 pub use sysinfo::*;
 pub use pdh::*;

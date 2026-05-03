@@ -8,14 +8,12 @@ use crate::data::{SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo};
 // ============================================================================
 
 #[cfg(target_os = "windows")]
-use std::ptr;
-#[cfg(target_os = "windows")]
 use windows::core::PCWSTR;
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 #[cfg(target_os = "windows")]
-use windows::Win32::Storage::FileSystem::{
-    CloseHandle, FILE_MAP_READ, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile,
+use windows::Win32::System::Memory::{
+    FILE_MAP_READ, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, MEMORY_MAPPED_VIEW_ADDRESS,
 };
 
 /// HWiNFO 共享内存名称
@@ -50,7 +48,7 @@ struct HWiNFOSensorEntry {
 #[cfg(target_os = "windows")]
 pub struct HWiNFOCollector {
     handle: HANDLE,         // 共享内存句柄
-    mapped_ptr: *mut u8,    // 映射的内存指针
+    mapped_ptr: MEMORY_MAPPED_VIEW_ADDRESS,    // 映射的内存指针
     size: usize,           // 映射内存大小
 }
 
@@ -66,7 +64,8 @@ impl HWiNFOCollector {
             .collect();
 
         // 打开共享内存
-        let handle = unsafe { OpenFileMappingW(FILE_MAP_READ, false, PCWSTR(name_wide.as_ptr())) };
+        let handle = unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, PCWSTR(name_wide.as_ptr())) }
+            .map_err(|e| anyhow::anyhow!("OpenFileMappingW failed: {}", e))?;
 
         if handle.is_invalid() {
             return Err(anyhow::anyhow!(
@@ -77,25 +76,25 @@ impl HWiNFOCollector {
         // 映射共享内存
         let mapped_ptr = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0) };
 
-        if mapped_ptr.is_null() {
-            unsafe { CloseHandle(handle) };
+        if mapped_ptr.Value.is_null() {
+            unsafe { let _ = CloseHandle(handle); };
             return Err(anyhow::anyhow!("无法映射 HWiNFO 共享内存"));
         }
 
         // 读取头部信息获取大小
-        let header = unsafe { &*(mapped_ptr as *const HWiNFOSharedMemHeader) };
+        let header = unsafe { &*(mapped_ptr.Value as *const HWiNFOSharedMemHeader) };
         let size = header.size as usize;
 
         Ok(Self {
             handle,
-            mapped_ptr: mapped_ptr as *mut u8,
+            mapped_ptr,
             size,
         })
     }
 
     /// 检查共享内存是否有效
     pub fn is_valid(&self) -> bool {
-        !self.handle.is_invalid() && !self.mapped_ptr.is_null()
+        !self.handle.is_invalid() && !self.mapped_ptr.Value.is_null()
     }
 
     /// 获取共享内存大小
@@ -112,7 +111,7 @@ impl HWiNFOCollector {
         }
 
         // 读取头部
-        let _header = unsafe { &*(self.mapped_ptr as *const HWiNFOSharedMemHeader) };
+        let _header = unsafe { &*(self.mapped_ptr.Value as *const HWiNFOSharedMemHeader) };
 
         // TODO: 根据实际 HWiNFO 共享内存格式解析传感器数据
         // 1. 遍历传感器列表
@@ -155,7 +154,7 @@ impl HWiNFOCollector {
         }
 
         // 从偏移量位置读取 null-terminated 字符串
-        let start = unsafe { self.mapped_ptr.add(offset as usize) };
+        let start = unsafe { (self.mapped_ptr.Value as *const u8).add(offset as usize) };
         let mut end = start;
         let mut len = 0;
 
@@ -185,15 +184,15 @@ impl HWiNFOCollector {
 impl Drop for HWiNFOCollector {
     fn drop(&mut self) {
         // 解除内存映射
-        if !self.mapped_ptr.is_null() {
+        if !self.mapped_ptr.Value.is_null() {
             unsafe {
-                UnmapViewOfFile(self.mapped_ptr as *const _);
+                let _ = UnmapViewOfFile(self.mapped_ptr);
             }
         }
         // 关闭句柄
         if !self.handle.is_invalid() {
             unsafe {
-                CloseHandle(self.handle);
+                let _ = CloseHandle(self.handle);
             }
         }
     }

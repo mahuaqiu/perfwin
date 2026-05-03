@@ -527,7 +527,7 @@ impl PyMonitorResult {
     }
 
     /// 转换为 Python 字典列表
-    fn to_dicts(&self, py: Python<'_>) -> PyResult<Vec<Bound<'_, PyDict>>> {
+    fn to_dicts<'a>(&self, py: Python<'a>) -> PyResult<Vec<Bound<'a, PyDict>>> {
         let mut result = Vec::new();
         for sample in &self.samples {
             let dict = sample.to_dict(py)?;
@@ -564,28 +564,28 @@ impl PyIterWrapper {
 
 impl PySample {
     /// 将采样数据转换为 Python 字典
-    fn to_dict(&self, py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
-        let dict = PyDict::new(py);
+    fn to_dict<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyDict>> {
+        let dict = PyDict::new_bound(py);
 
         dict.set_item("timestamp", self.inner.timestamp.to_rfc3339())?;
 
         if let Some(system) = &self.inner.system {
-            let sys_dict = PyDict::new(py);
+            let sys_dict = PyDict::new_bound(py);
 
-            let cpu_dict = PyDict::new(py);
+            let cpu_dict = PyDict::new_bound(py);
             cpu_dict.set_item("percent", system.cpu.percent)?;
             cpu_dict.set_item("temperature", system.cpu.temperature)?;
             cpu_dict.set_item("power", system.cpu.power)?;
             sys_dict.set_item("cpu", cpu_dict)?;
 
-            let gpu_dict = PyDict::new(py);
+            let gpu_dict = PyDict::new_bound(py);
             gpu_dict.set_item("percent", system.gpu.percent)?;
             gpu_dict.set_item("temperature", system.gpu.temperature)?;
             gpu_dict.set_item("power", system.gpu.power)?;
             gpu_dict.set_item("memory_mb", system.gpu.memory_mb)?;
             sys_dict.set_item("gpu", gpu_dict)?;
 
-            let mem_dict = PyDict::new(py);
+            let mem_dict = PyDict::new_bound(py);
             mem_dict.set_item("percent", system.memory.percent)?;
             mem_dict.set_item("used_mb", system.memory.used_mb)?;
             mem_dict.set_item("total_mb", system.memory.total_mb)?;
@@ -593,7 +593,7 @@ impl PySample {
             mem_dict.set_item("committed_limit_mb", system.memory.committed_limit_mb)?;
             sys_dict.set_item("memory", mem_dict)?;
 
-            let net_dict = PyDict::new(py);
+            let net_dict = PyDict::new_bound(py);
             net_dict.set_item("upload_speed", system.network.upload_speed)?;
             net_dict.set_item("download_speed", system.network.download_speed)?;
             sys_dict.set_item("network", net_dict)?;
@@ -602,9 +602,9 @@ impl PySample {
         }
 
         if let Some(processes) = &self.inner.processes {
-            let procs_list = PyList::empty(py);
+            let procs_list = PyList::new_bound(py, Vec::<Bound<'_, PyDict>>::new());
             for proc in processes {
-                let proc_dict = PyDict::new(py);
+                let proc_dict = PyDict::new_bound(py);
                 proc_dict.set_item("pid", proc.pid)?;
                 proc_dict.set_item("name", &proc.name)?;
                 proc_dict.set_item("cpu_percent", proc.cpu_percent)?;
@@ -633,10 +633,10 @@ impl PySample {
 }
 
 /// 将进程列表转换为 Python 列表
-fn process_list_to_pylist(py: Python<'_>, processes: &[ProcessInfo]) -> PyResult<Bound<'_, PyList>> {
-    let list = PyList::empty(py);
+fn process_list_to_pylist<'py>(py: Python<'py>, processes: &[ProcessInfo]) -> PyResult<Bound<'py, PyList>> {
+    let list = PyList::new_bound(py, Vec::<Bound<'py, PyDict>>::new());
     for proc in processes {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         dict.set_item("pid", proc.pid)?;
         dict.set_item("name", &proc.name)?;
         dict.set_item("cpu_percent", proc.cpu_percent)?;
@@ -796,8 +796,8 @@ impl PyMonitor {
     /// 启动监控
     ///
     /// 开始后台采集线程
-    fn start(slf: Py<Self>) -> PyResult<()> {
-        let inner = slf.borrow();
+    fn start(slf: Py<Self>, py: Python<'_>) -> PyResult<()> {
+        let inner = slf.borrow(py);
         if let Some(core) = &inner.core {
             let mut core_guard = core.lock();
             core_guard
@@ -810,8 +810,8 @@ impl PyMonitor {
     /// 停止监控
     ///
     /// 停止后台采集线程
-    fn stop(slf: Py<Self>) -> PyResult<()> {
-        let inner = slf.borrow();
+    fn stop(slf: Py<Self>, py: Python<'_>) -> PyResult<()> {
+        let inner = slf.borrow(py);
         if let Some(core) = &inner.core {
             let mut core_guard = core.lock();
             core_guard
@@ -824,8 +824,8 @@ impl PyMonitor {
     /// 获取监控结果
     ///
     /// 返回采集的所有数据并清空缓冲区
-    fn get_result(slf: Py<Self>) -> PyResult<PyMonitorResult> {
-        let inner = slf.borrow();
+    fn get_result(slf: Py<Self>, py: Python<'_>) -> PyResult<PyMonitorResult> {
+        let inner = slf.borrow(py);
         if let Some(core) = &inner.core {
             let core_guard = core.lock();
             let samples = core_guard.get_result();
@@ -837,8 +837,8 @@ impl PyMonitor {
     }
 
     /// 检查是否正在运行
-    fn is_running(slf: Py<Self>) -> bool {
-        let inner = slf.borrow();
+    fn is_running(slf: Py<Self>, py: Python<'_>) -> bool {
+        let inner = slf.borrow(py);
         if let Some(core) = &inner.core {
             let core_guard = core.lock();
             core_guard.is_running()
@@ -848,8 +848,8 @@ impl PyMonitor {
     }
 
     /// 获取缓冲区中的数据数量
-    fn buffer_len(slf: Py<Self>) -> usize {
-        let inner = slf.borrow();
+    fn buffer_len(slf: Py<Self>, py: Python<'_>) -> usize {
+        let inner = slf.borrow(py);
         if let Some(core) = &inner.core {
             let core_guard = core.lock();
             core_guard.buffer_len()
@@ -891,10 +891,10 @@ impl PyMonitor {
     /// 进入上下文管理器
     ///
     /// 返回 `Py<Self>` 以支持 `with Monitor(...) as m:` 语法
-    fn __enter__(slf: Py<Self>) -> PyResult<Py<Self>> {
+    fn __enter__(slf: Py<Self>, py: Python<'_>) -> PyResult<Py<Self>> {
         // 启动监控
         {
-            let inner = slf.borrow();
+            let inner = slf.borrow(py);
             if let Some(core) = &inner.core {
                 let mut core_guard = core.lock();
                 core_guard
@@ -909,13 +909,14 @@ impl PyMonitor {
     /// 退出上下文管理器
     fn __exit__(
         slf: Py<Self>,
+        py: Python<'_>,
         _exc_type: &Bound<'_, PyAny>,
         _exc_value: &Bound<'_, PyAny>,
         _traceback: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
         // 停止监控
         {
-            let inner = slf.borrow();
+            let inner = slf.borrow(py);
             if let Some(core) = &inner.core {
                 let mut core_guard = core.lock();
                 let _ = core_guard.stop();

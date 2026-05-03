@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -rf ~/.cargo/registry/index/rsproxy* ~/.cargo/registry/index/crates-io*)",
+      "Bash(maturin develop *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(cmd /c \"git --version\" 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; git status)"
+    ]
+  }
+}

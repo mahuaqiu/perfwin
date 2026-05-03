@@ -89,10 +89,12 @@ impl HWiNFOManager {
     ///
     /// # 返回
     /// true 表示进程仍在运行，false 表示已退出或未启动
-    pub fn is_running(&self) -> bool {
-        self.process.as_ref()
-            .map(|p| p.try_wait().map(|w| w.is_none()).unwrap_or(false))
-            .unwrap_or(false)
+    pub fn is_running(&mut self) -> bool {
+        if let Some(process) = &mut self.process {
+            process.try_wait().map(|w| w.is_none()).unwrap_or(false)
+        } else {
+            false
+        }
     }
 
     /// 重启 HWiNFO（用于处理 12 小时失效）
