@@ -29,7 +29,8 @@
       "PowerShell(Remove-Item *)",
       "PowerShell(cmd /c \"git status\")",
       "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" status)",
-      "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" add -A)"
+      "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" add -A)",
+      "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" rm --cached -r .claude/worktrees)"
     ]
   }
 }
