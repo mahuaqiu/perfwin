@@ -246,9 +246,9 @@ impl HWiNFOConfig {
             },
             network: NetworkConfig {
                 download_name: Some("Current DL rate".to_string()),
-                download_unit: Some("B/s".to_string()),
+                download_unit: Some("KB/s".to_string()),
                 upload_name: Some("Current UP rate".to_string()),
-                upload_unit: Some("B/s".to_string()),
+                upload_unit: Some("KB/s".to_string()),
             },
             battery: BatteryConfig {
                 charge_name: Some("Charge Level".to_string()),
@@ -397,7 +397,12 @@ impl HWiNFOCollector {
 
             // 名称包含目标名称，且单位包含目标单位
             if name_lower.contains(&target_name_lower) && unit_lower.contains(&target_unit_lower) {
-                return entry.value;
+                let value = entry.value;
+                // 如果单位是 KB/s，转换为 B/s
+                if unit_lower.contains("kb/s") || unit_lower.contains("kb") {
+                    return value * 1024.0;
+                }
+                return value;
             }
         }
 
@@ -415,7 +420,12 @@ impl HWiNFOCollector {
             let unit_lower = entry.unit.to_lowercase();
 
             if name_lower.contains(&target_name_lower) && unit_lower.contains(&target_unit_lower) {
-                return Some(entry.value);
+                let value = entry.value;
+                // 如果单位是 KB/s，转换为 B/s
+                if unit_lower.contains("kb/s") || unit_lower.contains("kb") {
+                    return Some(value * 1024.0);
+                }
+                return Some(value);
             }
         }
 

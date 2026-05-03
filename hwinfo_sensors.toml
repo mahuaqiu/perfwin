@@ -35,11 +35,11 @@ power_unit = "W"
 [network]
 # 下载速度
 download_name = "Current DL rate"
-download_unit = "B/s"
+download_unit = "KB/s"
 
 # 上传速度
 upload_name = "Current UP rate"
-upload_unit = "B/s"
+upload_unit = "KB/s"
 
 [battery]
 # 电池电量（笔记本电脑）
