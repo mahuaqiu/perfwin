@@ -1,5 +1,5 @@
 #[cfg(target_os = "windows")]
-use std::process::{Child, Command};
+use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
@@ -12,7 +12,6 @@ use anyhow::Result;
 /// 注意：HWiNFO 仅存在于 Windows 平台。
 #[cfg(target_os = "windows")]
 pub struct HWiNFOManager {
-    process: Option<Child>,
     path: PathBuf,
 }
 
@@ -21,12 +20,12 @@ impl HWiNFOManager {
     /// 创建新的 HWiNFO 管理器
     ///
     /// # 参数
-    /// - `hwinfo_path`: 可选的 HWiNFO.exe 路径，若为 None 则使用扩展模块所在目录
+    /// - `hwinfo_path`: 可选的 HWiNFO.exe 路径，若为 None 则使用扩展模块所在目录下的 HWiNFO64 子目录
     ///
     /// # 返回
     /// 成功返回 HWiNFOManager 实例
     pub fn new(hwinfo_path: Option<&str>) -> Result<Self> {
-        // 默认使用扩展同目录下的 HWiNFO.exe
+        // 默认使用扩展模块所在目录下的 HWiNFO64/HWiNFO64.EXE
         let path = if let Some(p) = hwinfo_path {
             PathBuf::from(p)
         } else {
@@ -35,53 +34,58 @@ impl HWiNFOManager {
                 .parent()
                 .ok_or_else(|| anyhow::anyhow!("Cannot get exe directory"))?
                 .to_path_buf();
-            exe_dir.join("HWiNFO.exe")
+            exe_dir.join("HWiNFO64").join("HWiNFO64.EXE")
         };
 
         Ok(Self {
-            process: None,
             path,
         })
     }
 
-    /// 启动 HWiNFO（最小化托盘，启用共享内存）
+    /// 启动 HWiNFO
     ///
-    /// HWiNFO 启动参数需要预先配置好：
-    /// - 共享内存需要在 HWiNFO 设置中启用
-    /// - 这里使用 /minimize 参数让程序最小化启动到托盘
+    /// 使用 PowerShell Start-Process 启动
     ///
     /// # 返回
     /// 成功返回 Ok(())，失败返回错误
     pub fn start(&mut self) -> Result<()> {
-        if self.process.is_some() {
-            return Ok(());  // 已经启动
-        }
+        let path_str = self.path.to_string_lossy();
 
-        // HWiNFO 启动参数需要预先配置好
-        // 这里假设用户已经配置了共享内存和最小化托盘
-        let child = Command::new(&self.path)
-            .arg("/minimize")  // 最小化启动
-            .spawn()
+        // 使用 PowerShell Start-Process 启动 HWiNFO
+        let output = Command::new("powershell")
+            .arg("-Command")
+            .arg(format!("Start-Process -FilePath '{}'", path_str))
+            .output()
             .map_err(|e| anyhow::anyhow!("Failed to start HWiNFO: {}", e))?;
 
-        self.process = Some(child);
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("Failed to start HWiNFO: {}", stderr));
+        }
 
-        // 等待共享内存生效（大约需要几秒）
-        std::thread::sleep(Duration::from_secs(3));
+        // 等待共享内存生效
+        std::thread::sleep(Duration::from_secs(5));
 
         Ok(())
     }
 
     /// 停止 HWiNFO
     ///
+    /// 使用 taskkill 强制终止 HWiNFO64.EXE 进程
+    ///
     /// # 返回
     /// 成功返回 Ok(())，失败返回错误
     pub fn stop(&mut self) -> Result<()> {
-        if let Some(mut process) = self.process.take() {
-            process.kill()
-                .map_err(|e| anyhow::anyhow!("Failed to kill HWiNFO: {}", e))?;
-            process.wait().ok(); // 等待进程回收，忽略错误
-        }
+        // 使用 taskkill 强制终止 HWiNFO64.EXE
+        let _output = Command::new("taskkill")
+            .arg("/f")
+            .arg("/im")
+            .arg("HWiNFO64.EXE")
+            .output()
+            .map_err(|e| anyhow::anyhow!("Failed to kill HWiNFO: {}", e))?;
+
+        // taskkill 返回成功即使进程不存在，所以不需要检查 status
+        // 只要命令执行成功就认为 OK
         Ok(())
     }
 
@@ -90,8 +94,16 @@ impl HWiNFOManager {
     /// # 返回
     /// true 表示进程仍在运行，false 表示已退出或未启动
     pub fn is_running(&mut self) -> bool {
-        if let Some(process) = &mut self.process {
-            process.try_wait().map(|w| w.is_none()).unwrap_or(false)
+        // 使用 tasklist 检查进程是否存在
+        let output = Command::new("tasklist")
+            .arg("/fi")
+            .arg("imagename eq HWiNFO64.EXE")
+            .output()
+            .ok();
+
+        if let Some(output) = output {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout.contains("HWiNFO64.EXE")
         } else {
             false
         }
@@ -146,16 +158,16 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_new_with_path() {
-        let manager = HWiNFOManager::new(Some("C:\\path\\to\\HWiNFO.exe"));
+        let manager = HWiNFOManager::new(Some("C:\\path\\to\\HWiNFO64.EXE"));
         assert!(manager.is_ok());
         let manager = manager.unwrap();
-        assert_eq!(manager.path(), &PathBuf::from("C:\\path\\to\\HWiNFO.exe"));
+        assert_eq!(manager.path(), &PathBuf::from("C:\\path\\to\\HWiNFO64.EXE"));
     }
 
     #[test]
     #[cfg(target_os = "windows")]
     fn test_is_running_when_not_started() {
-        let manager = HWiNFOManager::new(Some("C:\\path\\to\\HWiNFO.exe")).unwrap();
+        let mut manager = HWiNFOManager::new(Some("C:\\path\\to\\HWiNFO64.EXE")).unwrap();
         assert!(!manager.is_running());
     }
 }

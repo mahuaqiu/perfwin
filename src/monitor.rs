@@ -36,11 +36,25 @@ impl MonitorCore {
     /// # 返回
     /// 成功返回 MonitorCore 实例，失败返回错误
     pub fn new(config: MonitorConfig) -> anyhow::Result<Self> {
-        // 如果启用了 HWiNFO，初始化并启动 HWiNFO 管理器
+        // 如果启用了 HWiNFO，尝试连接或启动
         let hwinfo_manager = if config.enable_hwinfo {
-            let mut manager = HWiNFOManager::new(config.hwinfo_path.as_deref())?;
-            manager.start()?;
-            Some(manager)
+            // 先尝试直接连接共享内存（HWiNFO 可能已在运行）
+            if HWiNFOCollector::new().is_ok() {
+                // HWiNFO 已在运行，不需要启动进程
+                None
+            } else {
+                // HWiNFO 未运行，尝试启动进程
+                let mut manager = HWiNFOManager::new(config.hwinfo_path.as_deref())?;
+                if let Err(e) = manager.start() {
+                    // 启动失败，打印警告但不报错
+                    // 用户可能需要手动启动 HWiNFO（需要管理员权限）
+                    eprintln!("警告: 无法自动启动 HWiNFO: {}", e);
+                    eprintln!("请手动启动 HWiNFO64 并启用共享内存功能，或使用 hwinfo_path 参数指定正确路径。");
+                    None
+                } else {
+                    Some(manager)
+                }
+            }
         } else {
             None
         };
@@ -184,13 +198,32 @@ fn collect_sample(
 ) -> Sample {
     // 收集系统级信息
     let system = if config.enable_sysinfo {
-        // 优先使用 HWiNFO
+        // 从 sysinfo 获取基础数据
+        let mut system_info = sysinfo_collector.get_system_info();
+
+        // 从 HWiNFO 补充温度、功耗数据
         if let Some(hwinfo) = hwinfo_collector {
-            hwinfo.get_system_info().ok()
-        } else {
-            // sysinfo 不提供系统级温度、功率数据，返回默认值
-            Some(SystemInfo::default())
+            if let Ok(hwinfo_data) = hwinfo.get_system_info() {
+                // 合并 HWiNFO 的 CPU/GPU 数据（温度、功耗）
+                system_info.cpu.temperature = hwinfo_data.cpu.temperature;
+                system_info.cpu.power = hwinfo_data.cpu.power;
+                system_info.gpu.temperature = hwinfo_data.gpu.temperature;
+                system_info.gpu.power = hwinfo_data.gpu.power;
+                // 如果 HWiNFO 有 CPU/GPU 使用率数据，也使用它
+                if hwinfo_data.cpu.percent > 0.0 {
+                    system_info.cpu.percent = hwinfo_data.cpu.percent;
+                }
+                if hwinfo_data.gpu.percent > 0.0 {
+                    system_info.gpu.percent = hwinfo_data.gpu.percent;
+                }
+                // 网络速度（如果 HWiNFO 提供）
+                if hwinfo_data.network.upload_speed > 0.0 || hwinfo_data.network.download_speed > 0.0 {
+                    system_info.network = hwinfo_data.network;
+                }
+            }
         }
+
+        Some(system_info)
     } else {
         None
     };

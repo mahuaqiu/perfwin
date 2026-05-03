@@ -1,7 +1,7 @@
 // sysinfo 采集器 - 进程级 CPU/内存/句柄
 
 use sysinfo::System;
-use crate::data::ProcessInfo;
+use crate::data::{ProcessInfo, SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo};
 
 #[cfg(target_os = "windows")]
 use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
@@ -93,6 +93,49 @@ impl SysinfoCollector {
                 }
             })
             .collect()
+    }
+
+    /// 获取系统级信息（内存）
+    pub fn get_system_info(&mut self) -> SystemInfo {
+        self.refresh();
+
+        // 刷新内存信息
+        self.sys.refresh_memory_specifics(
+            sysinfo::MemoryRefreshKind::everything()
+        );
+
+        let total_memory = self.sys.total_memory() as f64 / 1024.0 / 1024.0;  // MB
+        let used_memory = self.sys.used_memory() as f64 / 1024.0 / 1024.0;    // MB
+        let memory_percent = if total_memory > 0.0 {
+            used_memory / total_memory * 100.0
+        } else {
+            0.0
+        };
+
+        SystemInfo {
+            cpu: CPUInfo {
+                percent: 0.0,  // 由 HWiNFO 或其他来源提供
+                temperature: None,
+                power: None,
+            },
+            gpu: GPUInfo {
+                percent: 0.0,
+                temperature: None,
+                power: None,
+                memory_mb: None,
+            },
+            memory: MemoryInfo {
+                percent: memory_percent,
+                used_mb: used_memory,
+                total_mb: total_memory,
+                committed_mb: 0.0,  // 可从 Windows API 获取
+                committed_limit_mb: 0.0,
+            },
+            network: NetworkInfo {
+                upload_speed: 0.0,
+                download_speed: 0.0,
+            },
+        }
     }
 }
 

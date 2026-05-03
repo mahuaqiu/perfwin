@@ -89,14 +89,17 @@ def example_process_filter_by_pid():
 
 
 def example_system_info():
-    """系统信息采集示例"""
+    """系统信息采集示例（包含 HWiNFO 温度/功耗数据）"""
     print("\n=== 系统信息采集示例 ===")
+    print("注意: 需要预先运行 HWiNFO64 并启用共享内存功能")
+    print("      HWiNFO Settings -> General -> Shared Memory Support")
 
     with perfdog.Monitor(
         interval=1.0,
         duration=10,
         enable_sysinfo=True,
         enable_pdh=True,
+        enable_hwinfo=True,  # 启用 HWiNFO 获取温度/功耗数据
     ) as monitor:
         time.sleep(3)
 
@@ -116,6 +119,15 @@ def example_system_info():
 
                 if sys_info.cpu.power:
                     print(f"CPU 功耗: {sys_info.cpu.power:.1f} W")
+
+                if sys_info.gpu.percent:
+                    print(f"GPU 使用率: {sys_info.gpu.percent:.1f}%")
+
+                if sys_info.gpu.temperature:
+                    print(f"GPU 温度: {sys_info.gpu.temperature:.1f}°C")
+
+                if sys_info.gpu.power:
+                    print(f"GPU 功耗: {sys_info.gpu.power:.1f} W")
 
 
 def example_manual_control():

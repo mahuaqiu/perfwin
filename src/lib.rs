@@ -742,7 +742,7 @@ impl PyMonitor {
     /// - `enable_hwinfo`: 是否启用 HWiNFO，默认 False
     /// - `enable_pdh`: 是否启用 PDH，默认 True
     /// - `enable_sysinfo`: 是否启用系统信息采集，默认 True
-    /// - `hwinfo_path`: HWiNFO 路径，默认 None
+    /// - `hwinfo_path`: HWiNFO 路径，默认自动检测模块目录下的 HWiNFO64 子目录
     /// - `process_filter`: 进程筛选器，默认 None
     /// - `top_n_cpu`: 获取 Top N CPU 进程，默认 None
     /// - `top_n_gpu`: 获取 Top N GPU 进程，默认 None
@@ -756,7 +756,8 @@ impl PyMonitor {
         hwinfo_path=None,
         process_filter=None,
         top_n_cpu=None,
-        top_n_gpu=None
+        top_n_gpu=None,
+        _module_path=None
     ))]
     fn new(
         interval: f64,
@@ -768,8 +769,21 @@ impl PyMonitor {
         process_filter: Option<PyProcessFilter>,
         top_n_cpu: Option<usize>,
         top_n_gpu: Option<usize>,
+        _module_path: Option<String>,  // 内部参数，用于获取模块路径
     ) -> PyResult<Self> {
         let filter = process_filter.map(|f| f.inner);
+
+        // 如果未指定 hwinfo_path，使用模块目录下的 HWiNFO64 子目录
+        let hwinfo_path = hwinfo_path.or_else(|| {
+            _module_path.map(|p| {
+                // 从模块路径获取目录，然后拼接 HWiNFO64/HWiNFO64.EXE
+                let module_dir = std::path::Path::new(&p)
+                    .parent()
+                    .map(|d| d.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                format!("{}\\HWiNFO64\\HWiNFO64.EXE", module_dir)
+            })
+        });
 
         let config = MonitorConfig {
             interval,
