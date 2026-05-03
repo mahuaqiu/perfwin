@@ -38,18 +38,13 @@ impl RingBuffer {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-
-    /// 克隆共享引用（用于跨线程传递）
-    pub fn clone_arc(&self) -> Self {
-        Self {
-            buffer: Arc::clone(&self.buffer),
-        }
-    }
 }
 
 impl Clone for RingBuffer {
     fn clone(&self) -> Self {
-        self.clone_arc()
+        Self {
+            buffer: Arc::clone(&self.buffer),
+        }
     }
 }
 

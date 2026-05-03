@@ -19,15 +19,14 @@ windows = { version = "0.58", features = [
     "Win32_Storage_FileSystem",
 ]}
 chrono = { version = "0.4", features = ["serde"] }
-crossbeam = "0.8"
 parking_lot = "0.12"
 anyhow = "1.0"
 thiserror = "1.0"
 regex = "1.10"
-itertools = "0.13"  # 用于 sorted_by 等迭代器方法
-serde = { version = "1.0", features = ["derive"] }  # 用于数据结构序列化
-toml = "0.8"  # 用于解析 HWiNFO 传感器配置文件
-log = "0.4"  # 日志门面
+itertools = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+log = "0.4"
 
 [build-dependencies]
 pyo3-build-config = "0.22"

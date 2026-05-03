@@ -15,6 +15,7 @@ use windows::Win32::Foundation::CloseHandle;
 pub struct SysinfoCollector {
     sys: System,
     last_refresh_time: Option<Instant>,
+    cpu_count: usize,  // CPU 核数，用于计算单核 CPU 使用率
 }
 
 impl SysinfoCollector {
@@ -26,9 +27,13 @@ impl SysinfoCollector {
             sysinfo::ProcessRefreshKind::everything()
         );
 
+        // 获取 CPU 核数
+        let cpu_count = sys.cpus().len();
+
         Self {
             sys,
             last_refresh_time: Some(Instant::now()),
+            cpu_count,
         }
     }
 
@@ -58,16 +63,24 @@ impl SysinfoCollector {
         self.sys.processes()
             .iter()
             .map(|(pid, proc)| {
-                let (committed_memory_mb, handle_count) = get_process_memory_and_handles(pid.as_u32())
-                    .unwrap_or((0.0, 0));
+                // 使用 Windows API 获取准确的内存数据
+                let (working_set_mb, committed_mb, handle_count) = get_process_memory_info(pid.as_u32())
+                    .unwrap_or((0.0, 0.0, 0));
+                // sysinfo 的 cpu_usage() 返回跨所有核的总使用率
+                // 任务管理器显示的是单核占比，需要除以核数
+                let cpu_percent = if self.cpu_count > 0 {
+                    proc.cpu_usage() as f64 / self.cpu_count as f64
+                } else {
+                    0.0
+                };
                 ProcessInfo {
                     pid: pid.as_u32(),
                     name: proc.name().to_string_lossy().to_string(),
-                    cpu_percent: proc.cpu_usage() as f64,
-                    working_set_mb: proc.memory() as f64 / 1024.0 / 1024.0,
-                    committed_memory_mb,
+                    cpu_percent,
+                    working_set_mb,
+                    committed_memory_mb: committed_mb,
                     gpu_percent: 0.0,          // PDH 采集
-                    gpu_memory_mb: 0.0,        // PDH 采集
+                    gpu_memory_mb: 0.0,        // 不需要
                     handle_count,
                 }
             })
@@ -79,14 +92,19 @@ impl SysinfoCollector {
         self.refresh();
         let sysinfo_pid = sysinfo::Pid::from_u32(pid);
         self.sys.process(sysinfo_pid).map(|proc| {
-            let (committed_memory_mb, handle_count) = get_process_memory_and_handles(pid)
-                .unwrap_or((0.0, 0));
+            let (working_set_mb, committed_mb, handle_count) = get_process_memory_info(pid)
+                .unwrap_or((0.0, 0.0, 0));
+            let cpu_percent = if self.cpu_count > 0 {
+                proc.cpu_usage() as f64 / self.cpu_count as f64
+            } else {
+                0.0
+            };
             ProcessInfo {
                 pid,
                 name: proc.name().to_string_lossy().to_string(),
-                cpu_percent: proc.cpu_usage() as f64,
-                working_set_mb: proc.memory() as f64 / 1024.0 / 1024.0,
-                committed_memory_mb,
+                cpu_percent,
+                working_set_mb,
+                committed_memory_mb: committed_mb,
                 gpu_percent: 0.0,
                 gpu_memory_mb: 0.0,
                 handle_count,
@@ -101,14 +119,19 @@ impl SysinfoCollector {
             .iter()
             .filter(|(_, proc)| proc.name() == name)
             .map(|(pid, proc)| {
-                let (committed_memory_mb, handle_count) = get_process_memory_and_handles(pid.as_u32())
-                    .unwrap_or((0.0, 0));
+                let (working_set_mb, committed_mb, handle_count) = get_process_memory_info(pid.as_u32())
+                    .unwrap_or((0.0, 0.0, 0));
+                let cpu_percent = if self.cpu_count > 0 {
+                    proc.cpu_usage() as f64 / self.cpu_count as f64
+                } else {
+                    0.0
+                };
                 ProcessInfo {
                     pid: pid.as_u32(),
                     name: proc.name().to_string_lossy().to_string(),
-                    cpu_percent: proc.cpu_usage() as f64,
-                    working_set_mb: proc.memory() as f64 / 1024.0 / 1024.0,
-                    committed_memory_mb,
+                    cpu_percent,
+                    working_set_mb,
+                    committed_memory_mb: committed_mb,
                     gpu_percent: 0.0,
                     gpu_memory_mb: 0.0,
                     handle_count,
@@ -117,7 +140,7 @@ impl SysinfoCollector {
             .collect()
     }
 
-    /// 获取系统级信息（内存）
+    /// 获取系统级信息（仅内存，CPU/GPU 使用率由 HWiNFO 提供）
     pub fn get_system_info(&mut self) -> SystemInfo {
         self.refresh();
 
@@ -134,14 +157,15 @@ impl SysinfoCollector {
             0.0
         };
 
+        // CPU/GPU 使用率由 HWiNFO 提供，sysinfo 不提供
         SystemInfo {
             cpu: CPUInfo {
-                percent: 0.0,  // 由 HWiNFO 或其他来源提供
-                temperature: None,
-                power: None,
+                percent: 0.0,        // 由 HWiNFO 提供
+                temperature: None,   // 由 HWiNFO 提供
+                power: None,         // 由 HWiNFO 提供
             },
             gpu: GPUInfo {
-                percent: 0.0,
+                percent: 0.0,        // 由 HWiNFO 提供
                 temperature: None,
                 power: None,
                 memory_mb: None,
@@ -150,17 +174,17 @@ impl SysinfoCollector {
                 percent: memory_percent,
                 used_mb: used_memory,
                 total_mb: total_memory,
-                committed_mb: 0.0,  // 可从 Windows API 获取
+                committed_mb: 0.0,
                 committed_limit_mb: 0.0,
             },
             network: NetworkInfo {
-                upload_speed: 0.0,
-                download_speed: 0.0,
+                upload_speed: 0.0,   // 由 HWiNFO 提供
+                download_speed: 0.0, // 由 HWiNFO 提供
             },
             battery: BatteryInfo {
-                charge_level: 0.0,  // 由 HWiNFO 提供
+                charge_level: 0.0,   // 由 HWiNFO 提供
             },
-            system_power: 0.0,  // 由 HWiNFO 提供
+            system_power: 0.0,       // 由 HWiNFO 提供
         }
     }
 }
@@ -171,9 +195,10 @@ impl Default for SysinfoCollector {
     }
 }
 
-/// 获取进程提交内存和句柄数（Windows API）
+/// 获取进程工作集内存、提交内存和句柄数（Windows API）
+/// 返回 (working_set_mb, committed_mb, handle_count)
 #[cfg(target_os = "windows")]
-pub fn get_process_memory_and_handles(pid: u32) -> Option<(f64, u32)> {
+pub fn get_process_memory_info(pid: u32) -> Option<(f64, f64, u32)> {
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
     let handle = handle.ok()?;
     if handle.is_invalid() {
@@ -194,8 +219,11 @@ pub fn get_process_memory_and_handles(pid: u32) -> Option<(f64, u32)> {
     unsafe { let _ = CloseHandle(handle); };
 
     if memory_result.is_ok() && handle_result.is_ok() {
+        // WorkingSetSize = 工作集内存（物理内存），任务管理器显示的 "内存"
+        let working_set_mb = counters.WorkingSetSize as f64 / 1024.0 / 1024.0;
+        // PrivateUsage = 提交内存（私有内存），任务管理器显示的 "提交大小"
         let committed_mb = counters.PrivateUsage as f64 / 1024.0 / 1024.0;
-        Some((committed_mb, handle_count))
+        Some((working_set_mb, committed_mb, handle_count))
     } else {
         None
     }
@@ -203,7 +231,6 @@ pub fn get_process_memory_and_handles(pid: u32) -> Option<(f64, u32)> {
 
 /// 非 Windows 平台的占位实现
 #[cfg(not(target_os = "windows"))]
-pub fn get_process_memory_and_handles(_pid: u32) -> Option<(f64, u32)> {
-    // 在非 Windows 平台上，提交内存和句柄数不可用
+pub fn get_process_memory_info(_pid: u32) -> Option<(f64, f64, u32)> {
     None
 }

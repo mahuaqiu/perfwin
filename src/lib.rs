@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use pyo3::wrap_pyfunction;
 use std::sync::Arc;
 use parking_lot::Mutex;
 
@@ -14,6 +15,7 @@ use crate::data::{
     ProcessInfo, Sample, MonitorConfig, ProcessFilter,
 };
 use crate::monitor::MonitorCore;
+use crate::collector::hwinfo::{HWiNFOCollector, SensorEntry};
 
 // ============================================================================
 // PyO3 绑定类
@@ -1006,6 +1008,125 @@ impl PyMonitor {
     }
 }
 
+// ----------------------------------------------------------------------------
+// PySensorEntry - HWiNFO 传感器条目类
+// ----------------------------------------------------------------------------
+
+/// HWiNFO 传感器条目类
+///
+/// 包含单个传感器的数据
+#[pyclass(name = "SensorEntry")]
+#[derive(Debug, Clone)]
+pub struct PySensorEntry {
+    inner: SensorEntry,
+}
+
+#[pymethods]
+impl PySensorEntry {
+    /// 传感器类型
+    #[getter]
+    fn sensor_type(&self) -> String {
+        format!("{:?}", self.inner.sensor_type)
+    }
+
+    /// 传感器索引
+    #[getter]
+    fn sensor_index(&self) -> u32 {
+        self.inner.sensor_index
+    }
+
+    /// ID
+    #[getter]
+    fn id(&self) -> u32 {
+        self.inner.id
+    }
+
+    /// 原始名称
+    #[getter]
+    fn name_original(&self) -> &str {
+        &self.inner.name_original
+    }
+
+    /// 用户自定义名称
+    #[getter]
+    fn name_user(&self) -> &str {
+        &self.inner.name_user
+    }
+
+    /// 显示名称（优先用户自定义名称）
+    fn label(&self) -> &str {
+        self.inner.label()
+    }
+
+    /// 单位
+    #[getter]
+    fn unit(&self) -> &str {
+        &self.inner.unit
+    }
+
+    /// 当前值
+    #[getter]
+    fn value(&self) -> f64 {
+        self.inner.value
+    }
+
+    /// 最小值
+    #[getter]
+    fn value_min(&self) -> f64 {
+        self.inner.value_min
+    }
+
+    /// 最大值
+    #[getter]
+    fn value_max(&self) -> f64 {
+        self.inner.value_max
+    }
+
+    /// 平均值
+    #[getter]
+    fn value_avg(&self) -> f64 {
+        self.inner.value_avg
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SensorEntry(type={:?}, name='{}', value={:.2} {})",
+            self.inner.sensor_type, self.inner.label(), self.inner.value, self.inner.unit
+        )
+    }
+}
+
+impl From<SensorEntry> for PySensorEntry {
+    fn from(entry: SensorEntry) -> Self {
+        Self { inner: entry }
+    }
+}
+
+// ============================================================================
+// 模块级函数
+// ============================================================================
+
+/// 列出 HWiNFO 共享内存中的所有传感器
+#[pyfunction]
+fn list_hwinfo_sensors() -> PyResult<Vec<PySensorEntry>> {
+    #[cfg(target_os = "windows")]
+    {
+        HWiNFOCollector::new()
+            .map(|collector| {
+                collector.iter_entries()
+                    .map(PySensorEntry::from)
+                    .collect()
+            })
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "HWiNFO 仅在 Windows 平台上可用"
+        ))
+    }
+}
+
 // ============================================================================
 // 模块定义
 // ============================================================================
@@ -1045,6 +1166,10 @@ fn perfdog(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIterWrapper>()?;
     m.add_class::<PyProcessFilter>()?;
     m.add_class::<PyMonitor>()?;
+    m.add_class::<PySensorEntry>()?;
+
+    // 注册函数
+    m.add_function(wrap_pyfunction!(list_hwinfo_sensors, m)?)?;
 
     // 模块版本
     m.add("__version__", "0.1.0")?;

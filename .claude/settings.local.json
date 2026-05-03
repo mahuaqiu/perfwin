@@ -14,7 +14,22 @@
       "PowerShell(Test-Path *)",
       "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); where.exe git 2>&1)",
       "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; D:\\\\code\\\\Git\\\\cmd\\\\git.exe status 2>&1)",
-      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; D:\\\\code\\\\Git\\\\cmd\\\\git.exe add src/collector/hwinfo.rs src/collector/sysinfo.rs src/hwinfo_manager.rs src/lib.rs src/monitor.rs python/perfdog/__init__.py pyproject.toml examples/basic_usage.py docs/superpowers/specs/2026-05-03-hwinfo-shared-memory-design.md 2>&1)"
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; D:\\\\code\\\\Git\\\\cmd\\\\git.exe add src/collector/hwinfo.rs src/collector/sysinfo.rs src/hwinfo_manager.rs src/lib.rs src/monitor.rs python/perfdog/__init__.py pyproject.toml examples/basic_usage.py docs/superpowers/specs/2026-05-03-hwinfo-shared-memory-design.md 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; D:\\\\code\\\\Git\\\\cmd\\\\git.exe add hwinfo_sensors.toml src/collector/hwinfo.rs src/collector/sysinfo.rs src/data.rs src/lib.rs src/monitor.rs Cargo.toml 2>&1)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"Path\",\"User\"\\); cd D:\\\\code\\\\perfwin; D:\\\\code\\\\Git\\\\cmd\\\\git.exe add hwinfo_sensors.toml src/collector/hwinfo.rs; D:\\\\code\\\\Git\\\\cmd\\\\git.exe commit -m \"fix: 网络速度单位改为KB/s，自动转换为B/s\" 2>&1)",
+      "PowerShell(maturin develop *)",
+      "PowerShell(.venv\\\\Scripts\\\\activate)",
+      "PowerShell(powershell -Command \"Get-Counter -ListSet 'GPU Engine' | Select-Object -ExpandProperty Counter | Select-Object -First 30\")",
+      "PowerShell(powershell -Command \"Get-Counter -ListSet 'GPU Engine' | Select-Object -ExpandProperty Counter\" | Select-String -Pattern \"pid\" | Select-Object -First 20)",
+      "PowerShell(typeperf *)",
+      "WebSearch",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:crates.io)",
+      "WebFetch(domain:github.com)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(cmd /c \"git status\")",
+      "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" status)",
+      "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" add -A)"
     ]
   }
 }
