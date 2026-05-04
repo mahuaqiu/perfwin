@@ -44,17 +44,17 @@ impl HWiNFOManager {
 
     /// 启动 HWiNFO
     ///
-    /// 使用 PowerShell Start-Process 启动
+    /// 使用 PowerShell Start-Process 启动，隐藏窗口避免置顶
     ///
     /// # 返回
     /// 成功返回 Ok(())，失败返回错误
     pub fn start(&mut self) -> Result<()> {
         let path_str = self.path.to_string_lossy();
 
-        // 使用 PowerShell Start-Process 启动 HWiNFO
+        // 使用 PowerShell Start-Process 启动 HWiNFO，隐藏窗口
         let output = Command::new("powershell")
             .arg("-Command")
-            .arg(format!("Start-Process -FilePath '{}'", path_str))
+            .arg(format!("Start-Process -FilePath '{}' -WindowStyle Hidden", path_str))
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to start HWiNFO: {}", e))?;
 

@@ -6,7 +6,7 @@ use chrono::Utc;
 use parking_lot::Mutex;
 use itertools::Itertools;
 
-use crate::data::{Sample, MonitorConfig, ProcessFilter, ProcessInfo};
+use crate::data::{Sample, MonitorConfig, ProcessFilter, ProcessInfo, AggregatedProcessInfo};
 use crate::ring_buffer::RingBuffer;
 use crate::collector::{SysinfoCollector, PdhCollector, HWiNFOCollector};
 use crate::hwinfo_manager::HWiNFOManager;
@@ -22,7 +22,8 @@ pub struct MonitorCore {
 
 impl MonitorCore {
     pub fn new(config: MonitorConfig) -> anyhow::Result<Self> {
-        let hwinfo_manager = if config.enable_hwinfo {
+        // HWiNFO 强制启用
+        let hwinfo_manager = {
             let mut manager = HWiNFOManager::new(config.hwinfo_path.as_deref())?;
             if let Err(e) = manager.start() {
                 log::warn!("HWiNFO start failed: {}", e);
@@ -30,8 +31,6 @@ impl MonitorCore {
             } else {
                 Some(manager)
             }
-        } else {
-            None
         };
 
         Ok(Self {
@@ -60,11 +59,8 @@ impl MonitorCore {
             } else {
                 None
             };
-            let hwinfo_collector = if config.enable_hwinfo {
-                HWiNFOCollector::new().ok()
-            } else {
-                None
-            };
+            // HWiNFO 强制启用
+            let hwinfo_collector = HWiNFOCollector::new().ok();
 
             let start_time = Instant::now();
             let interval = Duration::from_secs_f64(config.interval);
@@ -136,38 +132,34 @@ fn collect_sample(
     pdh_collector: &mut Option<PdhCollector>,
     hwinfo_collector: &Option<HWiNFOCollector>,
 ) -> Sample {
-    let system = if config.enable_sysinfo {
-        let mut system_info = sysinfo_collector.get_system_info();
+    // system 必须返回
+    let mut system_info = sysinfo_collector.get_system_info();
 
-        match hwinfo_collector {
-            Some(hwinfo) => {
-                match hwinfo.get_system_info() {
-                    Ok(hwinfo_data) => {
-                        system_info.cpu.percent = hwinfo_data.cpu.percent;
-                        system_info.gpu.percent = hwinfo_data.gpu.percent;
-                        system_info.cpu.temperature = hwinfo_data.cpu.temperature;
-                        system_info.cpu.power = hwinfo_data.cpu.power;
-                        system_info.gpu.temperature = hwinfo_data.gpu.temperature;
-                        system_info.gpu.power = hwinfo_data.gpu.power;
-                        system_info.network = hwinfo_data.network;
-                        system_info.battery = hwinfo_data.battery;
-                        system_info.system_power = hwinfo_data.system_power;
-                    }
-                    Err(e) => {
-                        log::warn!("HWiNFO get_system_info failed: {}", e);
-                    }
+    match hwinfo_collector {
+        Some(hwinfo) => {
+            match hwinfo.get_system_info() {
+                Ok(hwinfo_data) => {
+                    system_info.cpu.percent = hwinfo_data.cpu.percent;
+                    system_info.gpu.percent = hwinfo_data.gpu.percent;
+                    system_info.cpu.temperature = hwinfo_data.cpu.temperature;
+                    system_info.cpu.power = hwinfo_data.cpu.power;
+                    system_info.gpu.temperature = hwinfo_data.gpu.temperature;
+                    system_info.gpu.power = hwinfo_data.gpu.power;
+                    system_info.network = hwinfo_data.network;
+                    system_info.battery = hwinfo_data.battery;
+                    system_info.system_power = hwinfo_data.system_power;
+                }
+                Err(e) => {
+                    log::warn!("HWiNFO get_system_info failed: {}", e);
                 }
             }
-            None => {
-                log::warn!("HWiNFO not enabled, cannot get CPU/GPU usage");
-            }
         }
+        None => {
+            log::warn!("HWiNFO not available, cannot get CPU/GPU usage");
+        }
+    }
 
-        Some(system_info)
-    } else {
-        None
-    };
-
+    // 进程数据（有筛选条件时返回）
     let processes = if config.process_filter.is_some() {
         let mut procs = get_filtered_processes(config, sysinfo_collector);
 
@@ -177,6 +169,23 @@ fn collect_sample(
         }
 
         Some(procs)
+    } else {
+        None
+    };
+
+    // 汇总数据（仅进程名筛选且启用汇总时返回）
+    let aggregated = if config.enable_aggregation && processes.is_some() {
+        let procs = processes.as_ref().unwrap();
+        // 判断是否是进程名筛选（Name 或 Names）
+        let is_name_filter = matches!(
+            &config.process_filter,
+            Some(ProcessFilter::Name(_)) | Some(ProcessFilter::Names(_))
+        );
+        if is_name_filter {
+            Some(aggregate_processes(procs))
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -201,8 +210,9 @@ fn collect_sample(
 
     Sample {
         timestamp: Utc::now(),
-        system,
+        system: system_info,
         processes,
+        aggregated,
         top_n_cpu,
         top_n_gpu,
     }
@@ -224,6 +234,12 @@ fn get_filtered_processes(
         Some(ProcessFilter::Name(name)) => {
             sysinfo_collector.get_processes_by_name(name)
         }
+        Some(ProcessFilter::Names(names)) => {
+            // 多个进程名：合并所有匹配的进程
+            names.iter()
+                .flat_map(|name| sysinfo_collector.get_processes_by_name(name))
+                .collect()
+        }
         Some(ProcessFilter::NameRegex(pattern)) => {
             match regex::Regex::new(pattern) {
                 Ok(re) => {
@@ -235,6 +251,40 @@ fn get_filtered_processes(
         }
         None => Vec::new()
     }
+}
+
+/// 汇总同名进程数据
+fn aggregate_processes(processes: &[ProcessInfo]) -> Vec<AggregatedProcessInfo> {
+    use std::collections::HashMap;
+
+    // 按进程名分组
+    let mut groups: HashMap<String, Vec<&ProcessInfo>> = HashMap::new();
+    for proc in processes {
+        groups.entry(proc.name.clone()).or_default().push(proc);
+    }
+
+    // 计算汇总数据
+    groups.into_iter()
+        .map(|(name, procs)| {
+            let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
+            let cpu_percent_total = procs.iter().map(|p| p.cpu_percent).sum();
+            let working_set_mb_total = procs.iter().map(|p| p.working_set_mb).sum();
+            let committed_memory_mb_total = procs.iter().map(|p| p.committed_memory_mb).sum();
+            let gpu_percent_total = procs.iter().map(|p| p.gpu_percent).sum();
+            let handle_count_total = procs.iter().map(|p| p.handle_count).sum();
+
+            AggregatedProcessInfo {
+                name,
+                pids,
+                cpu_percent_total,
+                working_set_mb_total,
+                committed_memory_mb_total,
+                gpu_percent_total,
+                handle_count_total,
+                process_count: procs.len(),
+            }
+        })
+        .collect()
 }
 
 fn get_top_n_processes<F>(

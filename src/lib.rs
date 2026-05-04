@@ -12,10 +12,11 @@ pub mod monitor;
 
 use crate::data::{
     CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, SystemInfo, BatteryInfo,
-    ProcessInfo, Sample, MonitorConfig, ProcessFilter,
+    ProcessInfo, AggregatedProcessInfo, Sample, MonitorConfig, ProcessFilter,
 };
 use crate::monitor::MonitorCore;
 use crate::collector::hwinfo::{HWiNFOCollector, SensorEntry};
+use crate::collector::sysinfo::SysinfoCollector;
 
 // ============================================================================
 // PyO3 绑定类
@@ -455,6 +456,83 @@ impl From<ProcessInfo> for PyProcessInfo {
 }
 
 // ----------------------------------------------------------------------------
+// PyAggregatedProcessInfo - 进程汇总信息类
+// ----------------------------------------------------------------------------
+
+/// 进程汇总信息类
+///
+/// 包含同名进程聚合后的性能数据
+#[pyclass(name = "AggregatedProcessInfo")]
+#[derive(Debug, Clone)]
+pub struct PyAggregatedProcessInfo {
+    inner: AggregatedProcessInfo,
+}
+
+#[pymethods]
+impl PyAggregatedProcessInfo {
+    /// 进程名称
+    #[getter]
+    fn name(&self) -> &str {
+        &self.inner.name
+    }
+
+    /// 所有 PID 列表
+    #[getter]
+    fn pids(&self) -> Vec<u32> {
+        self.inner.pids.clone()
+    }
+
+    /// CPU 使用率总和百分比
+    #[getter]
+    fn cpu_percent_total(&self) -> f64 {
+        self.inner.cpu_percent_total
+    }
+
+    /// 工作集内存总和 (MB)
+    #[getter]
+    fn working_set_mb_total(&self) -> f64 {
+        self.inner.working_set_mb_total
+    }
+
+    /// 提交内存总和 (MB)
+    #[getter]
+    fn committed_memory_mb_total(&self) -> f64 {
+        self.inner.committed_memory_mb_total
+    }
+
+    /// GPU 使用率总和百分比
+    #[getter]
+    fn gpu_percent_total(&self) -> f64 {
+        self.inner.gpu_percent_total
+    }
+
+    /// 句柄数总和
+    #[getter]
+    fn handle_count_total(&self) -> u32 {
+        self.inner.handle_count_total
+    }
+
+    /// 进程数量
+    #[getter]
+    fn process_count(&self) -> usize {
+        self.inner.process_count
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "AggregatedProcessInfo(name='{}', pids={}, cpu={:.1}%, mem={:.1}MB)",
+            self.inner.name, self.inner.pids.len(), self.inner.cpu_percent_total, self.inner.working_set_mb_total
+        )
+    }
+}
+
+impl From<AggregatedProcessInfo> for PyAggregatedProcessInfo {
+    fn from(info: AggregatedProcessInfo) -> Self {
+        Self { inner: info }
+    }
+}
+
+// ----------------------------------------------------------------------------
 // PySample - 单次采样类
 // ----------------------------------------------------------------------------
 
@@ -474,8 +552,9 @@ impl PySample {
         Self {
             inner: Sample {
                 timestamp: chrono::Utc::now(),
-                system: None,
+                system: SystemInfo::default(),
                 processes: None,
+                aggregated: None,
                 top_n_cpu: None,
                 top_n_gpu: None,
             },
@@ -488,17 +567,25 @@ impl PySample {
         self.inner.timestamp.to_rfc3339()
     }
 
-    /// 系统信息，可能为 None
+    /// 系统信息（每次采集必须返回）
     #[getter]
-    fn system(&self) -> Option<PySystemInfo> {
-        self.inner.system.as_ref().map(|s| PySystemInfo::from(s.clone()))
+    fn system(&self) -> PySystemInfo {
+        PySystemInfo::from(self.inner.system.clone())
     }
 
-    /// 目标进程列表，可能为 None
+    /// 目标进程明细列表，可能为 None
     #[getter]
     fn processes(&self) -> Option<Vec<PyProcessInfo>> {
         self.inner.processes.as_ref().map(|procs| {
             procs.iter().map(|p| PyProcessInfo::from(p.clone())).collect()
+        })
+    }
+
+    /// 进程汇总列表，可能为 None（仅进程名筛选时返回）
+    #[getter]
+    fn aggregated(&self) -> Option<Vec<PyAggregatedProcessInfo>> {
+        self.inner.aggregated.as_ref().map(|agg| {
+            agg.iter().map(|a| PyAggregatedProcessInfo::from(a.clone())).collect()
         })
     }
 
@@ -520,9 +607,10 @@ impl PySample {
 
     fn __repr__(&self) -> String {
         format!(
-            "Sample(timestamp='{}', processes={:?})",
+            "Sample(timestamp='{}', processes={:?}, aggregated={:?})",
             self.inner.timestamp.format("%Y-%m-%d %H:%M:%S"),
-            self.inner.processes.as_ref().map(|p| p.len())
+            self.inner.processes.as_ref().map(|p| p.len()),
+            self.inner.aggregated.as_ref().map(|a| a.len())
         )
     }
 }
@@ -623,44 +711,45 @@ impl PySample {
 
         dict.set_item("timestamp", self.inner.timestamp.to_rfc3339())?;
 
-        if let Some(system) = &self.inner.system {
-            let sys_dict = PyDict::new_bound(py);
+        // system 必须返回
+        let system = &self.inner.system;
+        let sys_dict = PyDict::new_bound(py);
 
-            let cpu_dict = PyDict::new_bound(py);
-            cpu_dict.set_item("percent", system.cpu.percent)?;
-            cpu_dict.set_item("temperature", system.cpu.temperature)?;
-            cpu_dict.set_item("power", system.cpu.power)?;
-            sys_dict.set_item("cpu", cpu_dict)?;
+        let cpu_dict = PyDict::new_bound(py);
+        cpu_dict.set_item("percent", system.cpu.percent)?;
+        cpu_dict.set_item("temperature", system.cpu.temperature)?;
+        cpu_dict.set_item("power", system.cpu.power)?;
+        sys_dict.set_item("cpu", cpu_dict)?;
 
-            let gpu_dict = PyDict::new_bound(py);
-            gpu_dict.set_item("percent", system.gpu.percent)?;
-            gpu_dict.set_item("temperature", system.gpu.temperature)?;
-            gpu_dict.set_item("power", system.gpu.power)?;
-            gpu_dict.set_item("memory_mb", system.gpu.memory_mb)?;
-            sys_dict.set_item("gpu", gpu_dict)?;
+        let gpu_dict = PyDict::new_bound(py);
+        gpu_dict.set_item("percent", system.gpu.percent)?;
+        gpu_dict.set_item("temperature", system.gpu.temperature)?;
+        gpu_dict.set_item("power", system.gpu.power)?;
+        gpu_dict.set_item("memory_mb", system.gpu.memory_mb)?;
+        sys_dict.set_item("gpu", gpu_dict)?;
 
-            let mem_dict = PyDict::new_bound(py);
-            mem_dict.set_item("percent", system.memory.percent)?;
-            mem_dict.set_item("used_mb", system.memory.used_mb)?;
-            mem_dict.set_item("total_mb", system.memory.total_mb)?;
-            mem_dict.set_item("committed_mb", system.memory.committed_mb)?;
-            mem_dict.set_item("committed_limit_mb", system.memory.committed_limit_mb)?;
-            sys_dict.set_item("memory", mem_dict)?;
+        let mem_dict = PyDict::new_bound(py);
+        mem_dict.set_item("percent", system.memory.percent)?;
+        mem_dict.set_item("used_mb", system.memory.used_mb)?;
+        mem_dict.set_item("total_mb", system.memory.total_mb)?;
+        mem_dict.set_item("committed_mb", system.memory.committed_mb)?;
+        mem_dict.set_item("committed_limit_mb", system.memory.committed_limit_mb)?;
+        sys_dict.set_item("memory", mem_dict)?;
 
-            let net_dict = PyDict::new_bound(py);
-            net_dict.set_item("upload_speed", system.network.upload_speed)?;
-            net_dict.set_item("download_speed", system.network.download_speed)?;
-            sys_dict.set_item("network", net_dict)?;
+        let net_dict = PyDict::new_bound(py);
+        net_dict.set_item("upload_speed", system.network.upload_speed)?;
+        net_dict.set_item("download_speed", system.network.download_speed)?;
+        sys_dict.set_item("network", net_dict)?;
 
-            let battery_dict = PyDict::new_bound(py);
-            battery_dict.set_item("charge_level", system.battery.charge_level)?;
-            sys_dict.set_item("battery", battery_dict)?;
+        let battery_dict = PyDict::new_bound(py);
+        battery_dict.set_item("charge_level", system.battery.charge_level)?;
+        sys_dict.set_item("battery", battery_dict)?;
 
-            sys_dict.set_item("system_power", system.system_power)?;
+        sys_dict.set_item("system_power", system.system_power)?;
 
-            dict.set_item("system", sys_dict)?;
-        }
+        dict.set_item("system", sys_dict)?;
 
+        // processes 可选
         if let Some(processes) = &self.inner.processes {
             let procs_list = PyList::new_bound(py, Vec::<Bound<'_, PyDict>>::new());
             for proc in processes {
@@ -676,6 +765,24 @@ impl PySample {
                 procs_list.append(proc_dict)?;
             }
             dict.set_item("processes", procs_list)?;
+        }
+
+        // aggregated 可选
+        if let Some(aggregated) = &self.inner.aggregated {
+            let agg_list = PyList::new_bound(py, Vec::<Bound<'_, PyDict>>::new());
+            for agg in aggregated {
+                let agg_dict = PyDict::new_bound(py);
+                agg_dict.set_item("name", &agg.name)?;
+                agg_dict.set_item("pids", agg.pids.clone())?;
+                agg_dict.set_item("cpu_percent_total", agg.cpu_percent_total)?;
+                agg_dict.set_item("working_set_mb_total", agg.working_set_mb_total)?;
+                agg_dict.set_item("committed_memory_mb_total", agg.committed_memory_mb_total)?;
+                agg_dict.set_item("gpu_percent_total", agg.gpu_percent_total)?;
+                agg_dict.set_item("handle_count_total", agg.handle_count_total)?;
+                agg_dict.set_item("process_count", agg.process_count)?;
+                agg_list.append(agg_dict)?;
+            }
+            dict.set_item("aggregated", agg_list)?;
         }
 
         if let Some(top_n) = &self.inner.top_n_cpu {
@@ -722,8 +829,11 @@ fn process_list_to_pylist<'py>(py: Python<'py>, processes: &[ProcessInfo]) -> Py
 ///     # 按 PID 筛选
 ///     filter = ProcessFilter(pids=[1234, 5678])
 ///
-///     # 按进程名精确匹配
+///     # 按进程名精确匹配（单个）
 ///     filter = ProcessFilter(name="chrome.exe")
+///
+///     # 按进程名精确匹配（多个）
+///     filter = ProcessFilter(names=["chrome.exe", "firefox.exe"])
 ///
 ///     # 按进程名正则匹配
 ///     filter = ProcessFilter(name_regex=r"chrome.*")
@@ -736,21 +846,24 @@ pub struct PyProcessFilter {
 #[pymethods]
 impl PyProcessFilter {
     #[new]
-    #[pyo3(signature = (pids=None, name=None, name_regex=None))]
+    #[pyo3(signature = (pids=None, name=None, names=None, name_regex=None))]
     fn new(
         pids: Option<Vec<u32>>,
         name: Option<String>,
+        names: Option<Vec<String>>,
         name_regex: Option<String>,
     ) -> PyResult<Self> {
         let inner = if let Some(pids) = pids {
             ProcessFilter::Pids(pids)
+        } else if let Some(names) = names {
+            ProcessFilter::Names(names)
         } else if let Some(name) = name {
             ProcessFilter::Name(name)
         } else if let Some(pattern) = name_regex {
             ProcessFilter::NameRegex(pattern)
         } else {
             return Err(pyo3::exceptions::PyValueError::new_err(
-                "Must specify one of: pids, name, or name_regex"
+                "Must specify one of: pids, name, names, or name_regex"
             ));
         };
         Ok(Self { inner })
@@ -760,6 +873,7 @@ impl PyProcessFilter {
         match &self.inner {
             ProcessFilter::Pids(pids) => format!("ProcessFilter(pids={:?})", pids),
             ProcessFilter::Name(name) => format!("ProcessFilter(name='{}')", name),
+            ProcessFilter::Names(names) => format!("ProcessFilter(names={:?})", names),
             ProcessFilter::NameRegex(pattern) => format!("ProcessFilter(name_regex='{}')", pattern),
         }
     }
@@ -797,40 +911,47 @@ impl PyMonitor {
     /// 创建新的 Monitor 实例
     ///
     /// # 参数
-    /// - `interval`: 采样间隔 (秒)，默认 1.0
+    /// - `interval`: 采样间隔 (秒)，默认 1.0，最小值 1.0
     /// - `duration`: 监控时长 (秒)，None 表示无限，默认 None
-    /// - `enable_hwinfo`: 是否启用 HWiNFO，默认 False
-    /// - `enable_pdh`: 是否启用 PDH，默认 True
+    /// - `enable_pdh`: 是否启用 PDH (GPU采集)，默认 True
     /// - `enable_sysinfo`: 是否启用系统信息采集，默认 True
     /// - `hwinfo_path`: HWiNFO 路径，默认自动检测模块目录下的 HWiNFO64 子目录
     /// - `process_filter`: 进程筛选器，默认 None
     /// - `top_n_cpu`: 获取 Top N CPU 进程，默认 None
     /// - `top_n_gpu`: 获取 Top N GPU 进程，默认 None
+    /// - `enable_aggregation`: 是否生成汇总数据（仅进程名筛选时有效），默认 True
     #[new]
     #[pyo3(signature = (
         interval=1.0,
         duration=None,
-        enable_hwinfo=false,
         enable_pdh=true,
         enable_sysinfo=true,
         hwinfo_path=None,
         process_filter=None,
         top_n_cpu=None,
         top_n_gpu=None,
+        enable_aggregation=true,
         _module_path=None
     ))]
     fn new(
         interval: f64,
         duration: Option<f64>,
-        enable_hwinfo: bool,
         enable_pdh: bool,
         enable_sysinfo: bool,
         hwinfo_path: Option<String>,
         process_filter: Option<PyProcessFilter>,
         top_n_cpu: Option<usize>,
         top_n_gpu: Option<usize>,
+        enable_aggregation: bool,
         _module_path: Option<String>,  // 内部参数，用于获取模块路径
     ) -> PyResult<Self> {
+        // 校验 interval 不能小于 1 秒
+        if interval < 1.0 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "采集间隔不能小于 1 秒"
+            ));
+        }
+
         let filter = process_filter.map(|f| f.inner);
 
         // 如果未指定 hwinfo_path，使用模块目录下的 HWiNFO64 子目录
@@ -848,16 +969,16 @@ impl PyMonitor {
         let config = MonitorConfig {
             interval,
             duration,
-            enable_hwinfo,
             enable_pdh,
             enable_sysinfo,
             hwinfo_path,
             process_filter: filter,
             top_n_cpu,
             top_n_gpu,
+            enable_aggregation,
         };
 
-        // 创建 MonitorCore 实例
+        // 创建 MonitorCore 实例（HWiNFO 强制启用）
         let core = MonitorCore::new(config.clone())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
@@ -944,12 +1065,6 @@ impl PyMonitor {
         self.config.duration
     }
 
-    /// 是否启用 HWiNFO
-    #[getter]
-    fn enable_hwinfo(&self) -> bool {
-        self.config.enable_hwinfo
-    }
-
     /// 是否启用 PDH
     #[getter]
     fn enable_pdh(&self) -> bool {
@@ -960,6 +1075,12 @@ impl PyMonitor {
     #[getter]
     fn enable_sysinfo(&self) -> bool {
         self.config.enable_sysinfo
+    }
+
+    /// 是否启用汇总数据
+    #[getter]
+    fn enable_aggregation(&self) -> bool {
+        self.config.enable_aggregation
     }
 
     /// 进入上下文管理器
@@ -1106,6 +1227,30 @@ impl From<SensorEntry> for PySensorEntry {
 // 模块级函数
 // ============================================================================
 
+/// 列出系统中所有进程（PID + 进程名）
+///
+/// 返回: List[Tuple[int, str]] - [(pid, name), ...]
+///
+/// 示例:
+///     processes = perfdog.list_processes()
+///     for pid, name in processes:
+///         print(f"{name}: {pid}")
+#[pyfunction]
+fn list_processes() -> PyResult<Vec<(u32, String)>> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut collector = SysinfoCollector::new();
+        let processes = collector.get_all_processes();
+        Ok(processes.into_iter().map(|p| (p.pid, p.name)).collect())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            "list_processes 仅在 Windows 平台上可用"
+        ))
+    }
+}
+
 /// 列出 HWiNFO 共享内存中的所有传感器
 #[pyfunction]
 fn list_hwinfo_sensors() -> PyResult<Vec<PySensorEntry>> {
@@ -1161,6 +1306,7 @@ fn perfdog(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBatteryInfo>()?;
     m.add_class::<PySystemInfo>()?;
     m.add_class::<PyProcessInfo>()?;
+    m.add_class::<PyAggregatedProcessInfo>()?;
     m.add_class::<PySample>()?;
     m.add_class::<PyMonitorResult>()?;
     m.add_class::<PyIterWrapper>()?;
@@ -1170,6 +1316,7 @@ fn perfdog(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // 注册函数
     m.add_function(wrap_pyfunction!(list_hwinfo_sensors, m)?)?;
+    m.add_function(wrap_pyfunction!(list_processes, m)?)?;
 
     // 模块版本
     m.add("__version__", "0.1.0")?;
