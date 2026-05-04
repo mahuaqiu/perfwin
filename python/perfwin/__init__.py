@@ -1,5 +1,5 @@
 """
-perfdog - Windows 系统性能监控模块
+perfwin - Windows 系统性能监控模块
 
 基于 Rust 编写的 Python 扩展，提供高性能的系统性能数据采集。
 """
@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 # 导入 Rust 扩展模块
-from .perfdog import *
+from .perfwin import *
 
 # 保存原始 Monitor 类
 _RustMonitor = Monitor

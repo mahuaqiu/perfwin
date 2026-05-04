@@ -1232,7 +1232,7 @@ impl From<SensorEntry> for PySensorEntry {
 /// 返回: List[Tuple[int, str]] - [(pid, name), ...]
 ///
 /// 示例:
-///     processes = perfdog.list_processes()
+///     processes = perfwin.list_processes()
 ///     for pid, name in processes:
 ///         print(f"{name}: {pid}")
 #[pyfunction]
@@ -1276,28 +1276,27 @@ fn list_hwinfo_sensors() -> PyResult<Vec<PySensorEntry>> {
 // 模块定义
 // ============================================================================
 
-/// Perfdog Python 模块
+/// Perfwin Python 模块
 ///
 /// 提供 Windows 系统性能监控功能
 ///
 /// 示例:
-///     from perfdog import Monitor, ProcessFilter
+///     from perfwin import Monitor, ProcessFilter
 ///
 ///     # 创建进程筛选器
 ///     filter = ProcessFilter(name="chrome.exe")
 ///
 ///     # 使用上下文管理器
-///     with Monitor(interval=0.5, process_filter=filter) as m:
+///     with Monitor(interval=1.0, process_filter=filter) as m:
 ///         time.sleep(10)
 ///
 ///     # 获取结果
 ///     result = m.get_result()
 ///     for sample in result.samples:
 ///         print(f"Time: {sample.timestamp}")
-///         if sample.system:
-///             print(f"  CPU: {sample.system.cpu.percent}%")
+///         print(f"  CPU: {sample.system.cpu.percent}%")
 #[pymodule]
-fn perfdog(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn perfwin(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 注册类
     m.add_class::<PyCPUInfo>()?;
     m.add_class::<PyGPUInfo>()?;

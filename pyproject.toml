@@ -3,7 +3,7 @@ requires = ["maturin>=1.0"]
 build-backend = "maturin"
 
 [project]
-name = "perfdog"
+name = "perfwin"
 version = "0.1.0"
 description = "Windows system performance monitoring extension"
 requires-python = ">=3.8"

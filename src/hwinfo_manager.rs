@@ -44,11 +44,18 @@ impl HWiNFOManager {
 
     /// 启动 HWiNFO
     ///
+    /// 如果 HWiNFO 已在运行，则跳过启动。
     /// 使用 PowerShell Start-Process 启动，隐藏窗口避免置顶
     ///
     /// # 返回
     /// 成功返回 Ok(())，失败返回错误
     pub fn start(&mut self) -> Result<()> {
+        // 先检查是否已运行
+        if self.is_running() {
+            log::info!("HWiNFO already running, skip start");
+            return Ok(());
+        }
+
         let path_str = self.path.to_string_lossy();
 
         // 使用 PowerShell Start-Process 启动 HWiNFO，隐藏窗口

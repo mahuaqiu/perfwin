@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-perfdog 使用示例
+perfwin 使用示例
 
-演示 perfdog 模块的主要功能：
+演示 perfwin 模块的主要功能：
 1. 获取系统所有进程列表
 2. 按进程名/PID 筛选监控
 3. 多进程名筛选
@@ -15,11 +15,11 @@ import sys
 
 # 检查平台
 if sys.platform != "win32":
-    print("错误：perfdog 只能在 Windows 上运行")
+    print("错误：perfwin 只能在 Windows 上运行")
     print(f"当前平台: {sys.platform}")
     sys.exit(1)
 
-import perfdog
+import perfwin
 import time
 
 
@@ -29,7 +29,7 @@ def example_list_processes():
     print("示例 1: 获取系统所有进程列表")
     print("=" * 60)
 
-    processes = perfdog.list_processes()
+    processes = perfwin.list_processes()
     print(f"系统进程总数: {len(processes)}")
     print("\n前 10 个进程:")
     for pid, name in processes[:10]:
@@ -43,9 +43,9 @@ def example_process_filter_by_name():
     print("=" * 60)
 
     # 按进程名筛选
-    process_filter = perfdog.ProcessFilter(name="python.exe")
+    process_filter = perfwin.ProcessFilter(name="python.exe")
 
-    with perfdog.Monitor(
+    with perfwin.Monitor(
         interval=1.0,  # 采集间隔 1 秒（最小值）
         duration=5,    # 监控 5 秒
         process_filter=process_filter,
@@ -93,9 +93,9 @@ def example_process_filter_by_names():
     print("=" * 60)
 
     # 多个进程名筛选
-    process_filter = perfdog.ProcessFilter(names=["python.exe", "explorer.exe"])
+    process_filter = perfwin.ProcessFilter(names=["python.exe", "explorer.exe"])
 
-    with perfdog.Monitor(
+    with perfwin.Monitor(
         interval=1.0,
         duration=5,
         process_filter=process_filter,
@@ -122,7 +122,7 @@ def example_top_n_processes():
     print("示例 4: Top 10 CPU/GPU 进程排行")
     print("=" * 60)
 
-    with perfdog.Monitor(
+    with perfwin.Monitor(
         interval=1.0,
         duration=5,
         top_n_cpu=10,
@@ -160,7 +160,7 @@ def example_interval_validation():
     print("=" * 60)
 
     try:
-        monitor = perfdog.Monitor(interval=0.5)
+        monitor = perfwin.Monitor(interval=0.5)
         print("错误：应该抛出异常")
     except ValueError as e:
         print(f"正确抛出异常: {e}")
@@ -173,9 +173,9 @@ def example_full_monitoring():
     print("=" * 60)
 
     # 多进程名筛选 + Top N
-    process_filter = perfdog.ProcessFilter(names=["python.exe"])
+    process_filter = perfwin.ProcessFilter(names=["python.exe"])
 
-    with perfdog.Monitor(
+    with perfwin.Monitor(
         interval=1.0,
         duration=5,
         process_filter=process_filter,
@@ -237,7 +237,7 @@ def example_full_monitoring():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("perfdog 使用示例")
+    print("perfwin 使用示例")
     print("=" * 60)
 
     try:
