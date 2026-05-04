@@ -41,7 +41,8 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(.venv/Scripts/python.exe -m pytest tests/test_perfwin.py -v)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(unzip -l target/wheels/perfwin-0.1.0-cp312-cp312-win_amd64.whl)"
     ]
   }
 }
