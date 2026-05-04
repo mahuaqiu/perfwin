@@ -5,7 +5,7 @@ use crate::data::{ProcessInfo, SystemInfo, CPUInfo, GPUInfo, MemoryInfo, Network
 use std::time::Instant;
 
 #[cfg(target_os = "windows")]
-use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX};
+use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS_EX2};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Threading::{OpenProcess, GetProcessHandleCount, PROCESS_QUERY_LIMITED_INFORMATION};
 #[cfg(target_os = "windows")]
@@ -195,8 +195,9 @@ impl Default for SysinfoCollector {
     }
 }
 
-/// 获取进程工作集内存、提交内存和句柄数（Windows API）
-/// 返回 (working_set_mb, committed_mb, handle_count)
+/// 获取进程私有工作集、提交内存和句柄数（Windows API）
+/// 返回 (private_working_set_mb, committed_mb, handle_count)
+/// 私有工作集 = 任务管理器进程页显示的"内存"
 #[cfg(target_os = "windows")]
 pub fn get_process_memory_info(pid: u32) -> Option<(f64, f64, u32)> {
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) };
@@ -205,9 +206,9 @@ pub fn get_process_memory_info(pid: u32) -> Option<(f64, f64, u32)> {
         return None;
     }
 
-    // 获取内存信息
-    let mut counters = PROCESS_MEMORY_COUNTERS_EX::default();
-    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32;
+    // 使用 EX2 结构体获取私有工作集
+    let mut counters = PROCESS_MEMORY_COUNTERS_EX2::default();
+    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
     let memory_result = unsafe {
         GetProcessMemoryInfo(handle, &mut counters as *mut _ as *mut _, counters.cb)
     };
@@ -219,11 +220,11 @@ pub fn get_process_memory_info(pid: u32) -> Option<(f64, f64, u32)> {
     unsafe { let _ = CloseHandle(handle); };
 
     if memory_result.is_ok() && handle_result.is_ok() {
-        // WorkingSetSize = 工作集内存（物理内存），任务管理器显示的 "内存"
-        let working_set_mb = counters.WorkingSetSize as f64 / 1024.0 / 1024.0;
+        // PrivateWorkingSetSize = 私有工作集，任务管理器显示的 "内存"
+        let private_working_set_mb = counters.PrivateWorkingSetSize as f64 / 1024.0 / 1024.0;
         // PrivateUsage = 提交内存（私有内存），任务管理器显示的 "提交大小"
         let committed_mb = counters.PrivateUsage as f64 / 1024.0 / 1024.0;
-        Some((working_set_mb, committed_mb, handle_count))
+        Some((private_working_set_mb, committed_mb, handle_count))
     } else {
         None
     }

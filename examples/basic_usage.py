@@ -70,10 +70,12 @@ def monitor_quark():
                     print("\nquark 进程:")
                     for proc in sample.processes:
                         print(f"  {proc.name} (PID {proc.pid})")
-                        print(f"    CPU: {proc.cpu_percent:.1f}%")
-                        print(f"    内存: {proc.working_set_mb:.1f} MB")
-                        print(f"    GPU: {proc.gpu_percent:.1f}%")
-                        print(f"    GPU显存: {proc.gpu_memory_mb:.1f} MB")
+                        print(f"    CPU使用率: {proc.cpu_percent:.1f}%")
+                        print(f"    内存(工作集): {proc.working_set_mb:.1f} MB")
+                        print(f"    提交内存: {proc.committed_memory_mb:.1f} MB")
+                        print(f"    句柄数: {proc.handle_count}")
+                        print(f"    GPU使用率: {proc.gpu_percent:.1f}%")
+                        # 注意: 进程级GPU显存数据在Windows上难以获取，暂不支持
 
 
 if __name__ == "__main__":
