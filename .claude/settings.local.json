@@ -30,7 +30,18 @@
       "PowerShell(cmd /c \"git status\")",
       "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" status)",
       "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" add -A)",
-      "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" rm --cached -r .claude/worktrees)"
+      "PowerShell(& \"D:\\\\code\\\\Git\\\\cmd\\\\git.exe\" rm --cached -r .claude/worktrees)",
+      "Bash(.venv/Scripts/activate)",
+      "Bash(pytest tests/test_perfdog.py -v)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_perfdog.py -v)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_perfdog.py -v --timeout=60)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_perfdog.py -v -k \"test_list_processes or test_duration_auto_stop\")",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe examples/basic_usage.py)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_perfwin.py -v)",
+      "Bash(git rm *)"
     ]
   }
 }
