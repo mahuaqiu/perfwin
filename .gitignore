@@ -1,4 +1,6 @@
 /.venv
 /target
 *.pyc
-/python
+*.pyd
+*.pdb
+__pycache__/

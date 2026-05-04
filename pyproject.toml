@@ -16,3 +16,5 @@ classifiers = [
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
+
+# 注意：HWiNFO64 和 __init__.py 通过 build_wheel.py 脚本打包
