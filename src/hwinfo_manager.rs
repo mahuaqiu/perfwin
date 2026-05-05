@@ -1,10 +1,16 @@
 #[cfg(target_os = "windows")]
 use std::process::Command;
 #[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;  // 提供 creation_flags 方法
+#[cfg(target_os = "windows")]
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 use std::time::Duration;
 use anyhow::Result;
+
+// Windows 隐藏子进程窗口的标志
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// HWiNFO 进程管理器
 ///
@@ -59,9 +65,12 @@ impl HWiNFOManager {
         let path_str = self.path.to_string_lossy();
 
         // 使用 PowerShell Start-Process 启动 HWiNFO，隐藏窗口
+        // 注意：Command 本身也要隐藏窗口，避免 PowerShell 弹出黑框
+        #[cfg(target_os = "windows")]
         let output = Command::new("powershell")
             .arg("-Command")
             .arg(format!("Start-Process -FilePath '{}' -WindowStyle Hidden", path_str))
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to start HWiNFO: {}", e))?;
 
@@ -83,11 +92,13 @@ impl HWiNFOManager {
     /// # 返回
     /// 成功返回 Ok(())，失败返回错误
     pub fn stop(&mut self) -> Result<()> {
-        // 使用 taskkill 强制终止 HWiNFO64.EXE
+        // 使用 taskkill 强制终止 HWiNFO64.EXE 进程（隐藏窗口）
+        #[cfg(target_os = "windows")]
         let _output = Command::new("taskkill")
             .arg("/f")
             .arg("/im")
             .arg("HWiNFO64.EXE")
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| anyhow::anyhow!("Failed to kill HWiNFO: {}", e))?;
 
@@ -101,10 +112,12 @@ impl HWiNFOManager {
     /// # 返回
     /// true 表示进程仍在运行，false 表示已退出或未启动
     pub fn is_running(&mut self) -> bool {
-        // 使用 tasklist 检查进程是否存在
+        // 使用 tasklist 检查进程是否存在（隐藏窗口）
+        #[cfg(target_os = "windows")]
         let output = Command::new("tasklist")
             .arg("/fi")
             .arg("imagename eq HWiNFO64.EXE")
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .ok();
 
