@@ -517,10 +517,23 @@ impl HWiNFOCollector {
                     .map(|(n, u)| self.find_by_name(n, u))
                     .unwrap_or(0.0),
             },
-            system_power: config.system.power_name.as_ref()
-                .zip(config.system.power_unit.as_ref())
-                .map(|(n, u)| self.find_by_name(n, u))
-                .unwrap_or(0.0),
+            // system_power: 优先 Total System Power，fallback 到 CPU Package Power
+            system_power: {
+                let total_power = config.system.power_name.as_ref()
+                    .zip(config.system.power_unit.as_ref())
+                    .map(|(n, u)| self.find_by_name(n, u))
+                    .unwrap_or(0.0);
+
+                // 如果 Total System Power 找不到（返回 0），fallback 到 CPU Package Power
+                if total_power > 0.0 {
+                    total_power
+                } else {
+                    config.cpu.power_name.as_ref()
+                        .zip(config.cpu.power_unit.as_ref())
+                        .map(|(n, u)| self.find_by_name(n, u))
+                        .unwrap_or(0.0)
+                }
+            },
         })
     }
 }

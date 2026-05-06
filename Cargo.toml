@@ -1,6 +1,6 @@
 [package]
 name = "perfwin"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [lib]
@@ -16,6 +16,7 @@ windows = { version = "0.58", features = [
     "Win32_System_ProcessStatus",
     "Win32_System_Threading",
     "Win32_System_Memory",
+    "Win32_System_SystemInformation",
     "Win32_Storage_FileSystem",
 ]}
 chrono = { version = "0.4", features = ["serde"] }

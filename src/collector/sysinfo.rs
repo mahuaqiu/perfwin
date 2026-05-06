@@ -10,6 +10,8 @@ use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY
 use windows::Win32::System::Threading::{OpenProcess, GetProcessHandleCount, PROCESS_QUERY_LIMITED_INFORMATION};
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::CloseHandle;
+#[cfg(target_os = "windows")]
+use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
 /// 进程级数据采集器
 pub struct SysinfoCollector {
@@ -157,6 +159,9 @@ impl SysinfoCollector {
             0.0
         };
 
+        // 获取系统提交内存
+        let (committed_mb, committed_limit_mb) = get_system_committed_memory();
+
         // CPU/GPU 使用率由 HWiNFO 提供，sysinfo 不提供
         SystemInfo {
             cpu: CPUInfo {
@@ -175,8 +180,8 @@ impl SysinfoCollector {
                 percent: memory_percent,
                 used_mb: used_memory,
                 total_mb: total_memory,
-                committed_mb: 0.0,
-                committed_limit_mb: 0.0,
+                committed_mb,
+                committed_limit_mb,
             },
             network: NetworkInfo {
                 upload_speed: 0.0,   // 由 HWiNFO 提供
@@ -235,4 +240,33 @@ pub fn get_process_memory_info(pid: u32) -> Option<(f64, f64, u32)> {
 #[cfg(not(target_os = "windows"))]
 pub fn get_process_memory_info(_pid: u32) -> Option<(f64, f64, u32)> {
     None
+}
+
+/// 获取系统提交内存信息（Windows API）
+/// 返回 (committed_mb, committed_limit_mb)
+/// 提交内存 = TotalPageFile - AvailPageFile
+/// 提交内存上限 = TotalPageFile
+#[cfg(target_os = "windows")]
+pub fn get_system_committed_memory() -> (f64, f64) {
+    let mut status = MEMORYSTATUSEX::default();
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+
+    let result = unsafe { GlobalMemoryStatusEx(&mut status) };
+
+    if result.is_ok() {
+        // ullTotalPageFile: 页面文件总量（物理内存 + 页面文件）
+        // ullAvailPageFile: 可用页面文件
+        // 提交内存 = 已提交的页面文件 = TotalPageFile - AvailPageFile
+        let committed_limit_mb = status.ullTotalPageFile as f64 / 1024.0 / 1024.0;
+        let committed_mb = (status.ullTotalPageFile - status.ullAvailPageFile) as f64 / 1024.0 / 1024.0;
+        (committed_mb, committed_limit_mb)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+/// 非 Windows 平台的占位实现
+#[cfg(not(target_os = "windows"))]
+pub fn get_system_committed_memory() -> (f64, f64) {
+    (0.0, 0.0)
 }
