@@ -6,6 +6,7 @@ perfwin 构建脚本 - 构建 wheel 包并打包 Python 源码和 HWiNFO64
 import zipfile
 import subprocess
 import sys
+import re
 from pathlib import Path
 
 
@@ -27,11 +28,29 @@ def find_wheel():
     return max(wheels, key=lambda p: p.stat().st_mtime)
 
 
+def get_dist_info_name(wheel_path):
+    """从 wheel 包中获取 dist-info 目录名"""
+    with zipfile.ZipFile(wheel_path, 'r') as whl:
+        for name in whl.namelist():
+            # dist-info 目录下的文件，如 perfwin-0.2.2.dist-info/METADATA
+            if '.dist-info/' in name:
+                # 提取目录名部分
+                return name.split('/')[0]
+    return None
+
+
 def add_python_files(wheel_path):
     """添加 Python 源码和 HWiNFO64 到 wheel 包"""
     python_dir = Path("python/perfwin")
 
     print(f"[2/3] 添加 Python 文件和 HWiNFO64...")
+
+    # 获取正确的 dist-info 目录名
+    dist_info = get_dist_info_name(wheel_path)
+    if not dist_info:
+        print("未找到 dist-info 目录")
+        sys.exit(1)
+    print(f"      dist-info: {dist_info}")
 
     with zipfile.ZipFile(wheel_path, 'a') as whl:
         # 添加 Python 源码文件
@@ -52,11 +71,12 @@ def add_python_files(wheel_path):
 
         # 重新生成 RECORD 文件
         records = []
+        record_file = f"{dist_info}/RECORD"
         for info in whl.infolist():
-            if info.filename != 'perfwin-0.1.0.dist-info/RECORD':
+            if info.filename != record_file:
                 records.append(f"{info.filename},,")
-        records.append("perfwin-0.1.0.dist-info/RECORD,,")
-        whl.writestr("perfwin-0.1.0.dist-info/RECORD", "\n".join(records))
+        records.append(f"{record_file},,")
+        whl.writestr(record_file, "\n".join(records))
 
 
 def main():
