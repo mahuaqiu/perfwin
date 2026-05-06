@@ -7,6 +7,7 @@ pub struct CPUInfo {
     pub percent: f64,
     pub temperature: Option<f64>,
     pub power: Option<f64>,
+    pub clock_speed: Option<f64>,  // GHz
 }
 
 /// GPU 系统信息

@@ -62,10 +62,16 @@ impl PyCPUInfo {
         self.inner.power
     }
 
+    /// CPU 核心频率 (GHz)，可能为 None
+    #[getter]
+    fn clock_speed(&self) -> Option<f64> {
+        self.inner.clock_speed
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "CPUInfo(percent={:.1}%, temperature={:?}, power={:?})",
-            self.inner.percent, self.inner.temperature, self.inner.power
+            "CPUInfo(percent={:.1}%, temperature={:?}, power={:?}, clock_speed={:?} GHz)",
+            self.inner.percent, self.inner.temperature, self.inner.power, self.inner.clock_speed
         )
     }
 }
@@ -1318,7 +1324,7 @@ fn perfwin(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(list_processes, m)?)?;
 
     // 模块版本
-    m.add("__version__", "0.2.0")?;
+    m.add("__version__", "0.2.1")?;
 
     Ok(())
 }

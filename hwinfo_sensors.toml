@@ -14,6 +14,10 @@ temperature_unit = "C"
 power_name = "CPU Package Power"
 power_unit = "W"
 
+# CPU核心频率（正则匹配所有核心时钟，求平均）
+clock_pattern = "(Core [0-9]+ Clock|P-core [0-9]+ Clock|E-core [0-9]+ Clock)"
+clock_unit = "MHz"
+
 [gpu]
 # 系统GPU使用率
 usage_name = "GPU D3D Usage"

@@ -163,6 +163,7 @@ impl SysinfoCollector {
                 percent: 0.0,        // 由 HWiNFO 提供
                 temperature: None,   // 由 HWiNFO 提供
                 power: None,         // 由 HWiNFO 提供
+                clock_speed: None,   // 由 HWiNFO 提供
             },
             gpu: GPUInfo {
                 percent: 0.0,        // 由 HWiNFO 提供

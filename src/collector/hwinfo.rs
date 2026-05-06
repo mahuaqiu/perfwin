@@ -4,6 +4,7 @@
 use crate::data::{SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, BatteryInfo};
 use serde::Deserialize;
 use std::path::PathBuf;
+use regex::Regex;
 
 // ============================================================================
 // Windows 平台实现
@@ -155,6 +156,8 @@ pub struct CpuConfig {
     pub temperature_unit: String,
     pub power_name: Option<String>,
     pub power_unit: Option<String>,
+    pub clock_pattern: Option<String>,
+    pub clock_unit: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -231,6 +234,8 @@ impl HWiNFOConfig {
                 temperature_unit: "C".to_string(),
                 power_name: Some("CPU Package Power".to_string()),
                 power_unit: Some("W".to_string()),
+                clock_pattern: Some("(Core [0-9]+ Clock|P-core [0-9]+ Clock|E-core [0-9]+ Clock)".to_string()),
+                clock_unit: Some("MHz".to_string()),
             },
             gpu: GpuConfig {
                 usage_name: "GPU D3D Usage".to_string(),
@@ -432,6 +437,33 @@ impl HWiNFOCollector {
         None
     }
 
+    /// 按正则匹配传感器值并求平均（可选）
+    /// 用于匹配多个核心时钟频率，如 "Core 0 Clock", "Core 1 Clock" 等
+    /// 返回所有匹配项的平均值
+    fn find_by_pattern_avg(&self, pattern: &str, target_unit: &str) -> Option<f64> {
+        let re = Regex::new(pattern).ok()?;
+        let target_unit_lower = target_unit.to_lowercase();
+
+        let mut sum = 0.0;
+        let mut count = 0;
+
+        for entry in self.iter_entries() {
+            let name = entry.label();
+            let unit_lower = entry.unit.to_lowercase();
+
+            if re.is_match(name) && unit_lower.contains(&target_unit_lower) {
+                sum += entry.value;
+                count += 1;
+            }
+        }
+
+        if count > 0 {
+            Some(sum / count as f64)
+        } else {
+            None
+        }
+    }
+
     /// 获取系统信息
     pub fn get_system_info(&self) -> anyhow::Result<SystemInfo> {
         if !self.is_valid() {
@@ -447,6 +479,18 @@ impl HWiNFOCollector {
                 power: config.cpu.power_name.as_ref()
                     .zip(config.cpu.power_unit.as_ref())
                     .and_then(|(n, u)| self.find_by_name_opt(n, u)),
+                clock_speed: config.cpu.clock_pattern.as_ref()
+                    .zip(config.cpu.clock_unit.as_ref())
+                    .and_then(|(p, u)| {
+                        self.find_by_pattern_avg(p, u).map(|v| {
+                            // MHz 转 GHz
+                            if u.to_lowercase().contains("mhz") {
+                                v / 1000.0
+                            } else {
+                                v
+                            }
+                        })
+                    }),
             },
             gpu: GPUInfo {
                 percent: self.find_by_name(&config.gpu.usage_name, &config.gpu.usage_unit),

@@ -173,6 +173,7 @@ fn collect_sample(
                     system_info.gpu.percent = hwinfo_data.gpu.percent;
                     system_info.cpu.temperature = hwinfo_data.cpu.temperature;
                     system_info.cpu.power = hwinfo_data.cpu.power;
+                    system_info.cpu.clock_speed = hwinfo_data.cpu.clock_speed;
                     system_info.gpu.temperature = hwinfo_data.gpu.temperature;
                     system_info.gpu.power = hwinfo_data.gpu.power;
                     system_info.network = hwinfo_data.network;
