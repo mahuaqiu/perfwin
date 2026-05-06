@@ -6,6 +6,8 @@ use std::os::windows::process::CommandExt;  // 提供 creation_flags 方法
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
 use std::time::Duration;
+#[cfg(target_os = "windows")]
+use std::fs;
 use anyhow::Result;
 
 // Windows 隐藏子进程窗口的标志
@@ -19,6 +21,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(target_os = "windows")]
 pub struct HWiNFOManager {
     path: PathBuf,
+    ini_path: PathBuf,  // HWiNFO64.INI 配置文件路径
 }
 
 #[cfg(target_os = "windows")]
@@ -43,8 +46,14 @@ impl HWiNFOManager {
             exe_dir.join("HWiNFO64").join("HWiNFO64.EXE")
         };
 
+        // HWiNFO64.INI 与 EXE 在同一目录
+        let ini_path = path.parent()
+            .ok_or_else(|| anyhow::anyhow!("Cannot get HWiNFO directory"))?
+            .join("HWiNFO64.INI");
+
         Ok(Self {
             path,
+            ini_path,
         })
     }
 
@@ -146,6 +155,95 @@ impl HWiNFOManager {
     /// 获取 HWiNFO 可执行文件路径
     pub fn path(&self) -> &PathBuf {
         &self.path
+    }
+
+    /// 获取 HWiNFO64.INI 配置文件路径
+    pub fn ini_path(&self) -> &PathBuf {
+        &self.ini_path
+    }
+
+    /// 检查配置文件中的 SensorsSM=1 是否存在
+    ///
+    /// # 返回
+    /// - true: 配置已启用共享内存
+    /// - false: 配置不存在或未启用共享内存
+    pub fn check_shared_memory_enabled(&self) -> bool {
+        if !self.ini_path.exists() {
+            return false;
+        }
+
+        let content = fs::read_to_string(&self.ini_path).ok();
+        if let Some(content) = content {
+            content.contains("SensorsSM=1")
+        } else {
+            false
+        }
+    }
+
+    /// 确保配置文件中存在 SensorsSM=1
+    ///
+    /// HWiNFO 免费版在运行12小时后会移除 SensorsSM=1 配置，
+    /// 导致共享内存失效。此方法用于在重启前恢复配置。
+    ///
+    /// # 返回
+    /// 成功返回 Ok(是否修改了配置)
+    pub fn ensure_shared_memory_enabled(&self) -> Result<bool> {
+        if self.check_shared_memory_enabled() {
+            return Ok(false);  // 已经存在，无需修改
+        }
+
+        // 读取现有内容
+        let mut content = if self.ini_path.exists() {
+            fs::read_to_string(&self.ini_path)?
+        } else {
+            String::from("[Settings]\n")
+        };
+
+        // 添加 SensorsSM=1
+        // 查找 [Settings] 部分
+        if content.contains("[Settings]") {
+            // 在 Settings 部分末尾添加
+            let settings_end = content.find("[Settings]").unwrap_or(0);
+            let next_section = content[settings_end..].find("\n[")
+                .map(|i| settings_end + i)
+                .unwrap_or(content.len());
+
+            // 在 Settings 部分末尾插入
+            content.insert_str(next_section, "\nSensorsSM=1");
+        } else {
+            // 没有 Settings 部分，添加整个部分
+            if !content.is_empty() && !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str("[Settings]\nSensorsSM=1\n");
+        }
+
+        // 写回文件
+        fs::write(&self.ini_path, content)?;
+        log::info!("Added SensorsSM=1 to HWiNFO64.INI");
+
+        Ok(true)
+    }
+
+    /// 重启 HWiNFO 并确保共享内存配置正确
+    ///
+    /// HWiNFO 免费版本的共享内存功能在运行 12 小时后会失效，
+    /// 此时需要：
+    /// 1. 杀掉进程
+    /// 2. 修改配置文件添加 SensorsSM=1
+    /// 3. 重启 HWiNFO
+    ///
+    /// # 返回
+    /// 成功返回 Ok(())，失败返回错误
+    pub fn restart_with_fix(&mut self) -> Result<()> {
+        self.stop()?;
+        std::thread::sleep(Duration::from_secs(1));
+
+        // 确保配置文件有 SensorsSM=1
+        self.ensure_shared_memory_enabled()?;
+
+        self.start()?;
+        Ok(())
     }
 }
 

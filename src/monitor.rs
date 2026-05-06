@@ -17,7 +17,9 @@ pub struct MonitorCore {
     buffer: RingBuffer,
     running: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
-    hwinfo_manager: Mutex<Option<HWiNFOManager>>,
+    hwinfo_manager: Arc<Mutex<Option<HWiNFOManager>>>,
+    /// 标记是否已经尝试过重启 HWiNFO（避免无限循环）
+    hwinfo_restarted: Arc<AtomicBool>,
 }
 
 impl MonitorCore {
@@ -38,7 +40,8 @@ impl MonitorCore {
             buffer: RingBuffer::new(),
             running: Arc::new(AtomicBool::new(false)),
             thread: None,
-            hwinfo_manager: Mutex::new(hwinfo_manager),
+            hwinfo_manager: Arc::new(Mutex::new(hwinfo_manager)),
+            hwinfo_restarted: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -51,6 +54,8 @@ impl MonitorCore {
         let config = self.config.clone();
         let buffer = self.buffer.clone();
         let running = Arc::clone(&self.running);
+        let hwinfo_manager = Arc::clone(&self.hwinfo_manager);
+        let hwinfo_restarted = Arc::clone(&self.hwinfo_restarted);
 
         let thread = thread::spawn(move || {
             let mut sysinfo_collector = SysinfoCollector::new();
@@ -59,8 +64,8 @@ impl MonitorCore {
             } else {
                 None
             };
-            // HWiNFO 强制启用
-            let hwinfo_collector = HWiNFOCollector::new().ok();
+            // HWiNFO 强制启用，首次创建可能失败（配置过期）
+            let mut hwinfo_collector = HWiNFOCollector::new().ok();
 
             let start_time = Instant::now();
             let interval = Duration::from_secs_f64(config.interval);
@@ -77,6 +82,31 @@ impl MonitorCore {
                     if start_time.elapsed().as_secs_f64() >= duration {
                         running.store(false, Ordering::SeqCst);
                         break;
+                    }
+                }
+
+                // 如果 HWiNFO 采集器无效，尝试检测并重启
+                if hwinfo_collector.is_none() && !hwinfo_restarted.load(Ordering::SeqCst) {
+                    // 检查是否是配置过期导致
+                    let manager_guard = hwinfo_manager.lock();
+                    if let Some(manager) = manager_guard.as_ref() {
+                        if !manager.check_shared_memory_enabled() {
+                            log::warn!("HWiNFO shared memory expired (SensorsSM=1 missing), attempting restart with config fix");
+                            // 释放锁后重启
+                            drop(manager_guard);
+
+                            let mut manager_guard = hwinfo_manager.lock();
+                            if let Some(manager) = manager_guard.as_mut() {
+                                if let Err(e) = manager.restart_with_fix() {
+                                    log::error!("HWiNFO restart with fix failed: {}", e);
+                                } else {
+                                    log::info!("HWiNFO restarted successfully with SensorsSM=1");
+                                    // 尝试重新创建采集器
+                                    hwinfo_collector = HWiNFOCollector::new().ok();
+                                    hwinfo_restarted.store(true, Ordering::SeqCst);
+                                }
+                            }
+                        }
                     }
                 }
 
