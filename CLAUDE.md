@@ -103,16 +103,35 @@ result = monitor.get_result()
 ```python
 Sample:
   timestamp: str              # 采样时间
-  system: SystemInfo          # 系统级数据（每次必须返回）
-    cpu: {percent, temperature, power}
-    gpu: {percent, temperature, power}
-    memory: {percent, used_mb, total_mb}
-    network: {upload_speed, download_speed}
+  hwinfo_raw: Dict[str, Dict[str, Any]]  # HWiNFO 原始传感器数据（每次必须返回）
+    key: 传感器名称（同名传感器自动编号 "#2", "#3" 等）
+    value: {"value": float, "unit": str}  # 传感器值和单位
   processes: List[ProcessInfo]  # 进程明细（筛选时返回）
   aggregated: List[AggregatedProcessInfo]  # 汇总数据（进程名筛选时返回）
   top_n_cpu: List[ProcessInfo]  # Top N CPU（设置参数时返回）
   top_n_gpu: List[ProcessInfo]  # Top N GPU（设置参数时返回）
+
+# 使用示例：
+hwinfo = sample.hwinfo_raw
+print(f"传感器总数: {len(hwinfo)}")
+
+# 查找特定传感器
+cpu_temp = hwinfo.get("CPU Package", {}).get("value")
+if cpu_temp:
+    print(f"CPU 温度: {cpu_temp:.1f}°C")
+
+# 打印前10个传感器
+for name, data in list(hwinfo.items())[:10]:
+    print(f"{name}: {data['value']} {data['unit']}")
 ```
+
+**v0.3.0 Breaking Change**: 删除了 `system` 字段，改用 `hwinfo_raw` 提供原始 HWiNFO 数据。
+
+迁移指南：
+- `sample.system.cpu.temperature` → `hwinfo.get("CPU Package", {}).get("value")`
+- `sample.system.gpu.temperature` → `hwinfo.get("GPU Temperature", {}).get("value")`
+- `sample.system.cpu.power` → `hwinfo.get("CPU Package Power", {}).get("value")`
+- 传感器名称可能因 HWiNFO 版本不同而异，建议先打印 `hwinfo_raw.keys()` 查看实际名称
 
 ### 参数说明
 
@@ -147,8 +166,8 @@ HWiNFO 用于获取系统级温度和功耗数据，强制启用：
 **重要**: 修改 Rust 代码后必须更新版本号，否则 pip 安装时不会真正更新。
 
 版本号位置：
-- `pyproject.toml` 第 7 行：`version = "0.1.1"`
-- `src/lib.rs` 第 1321 行：`m.add("__version__", "0.1.1")?;`
+- `pyproject.toml` 第 7 行：`version = "0.3.0"`
+- `src/lib.rs` 第 953 行：`m.add("__version__", "0.3.0")?;`
 
 更新规则：
 - 小修改（bugfix、隐藏窗口等）：`0.1.x` → `0.1.x+1`
