@@ -374,9 +374,13 @@ mod tests {
                 .collect();
 
             for name in &duplicate_names {
-                // 编号格式应该是 "#2", "#3" 等
-                assert!(name.contains(" #2") || name.contains(" #3"),
-                    "同名编号格式正确: {}", name);
+                // 编号格式应该是 "#N"（N为数字）
+                // 注意：HWiNFO原始数据可能本身包含 "#1" 等编号
+                let has_number_suffix = name.matches(" #").any(|suffix| {
+                    let after_hash = &name[name.find(suffix).unwrap() + suffix.len()..];
+                    after_hash.chars().next().map(|c| c.is_numeric()).unwrap_or(false)
+                });
+                assert!(has_number_suffix, "同名编号格式正确: {}", name);
             }
 
             println!("测试通过：{}个传感器，{}个同名传感器",
