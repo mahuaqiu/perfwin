@@ -1,6 +1,9 @@
 // HWiNFO 采集器 - 系统级数据
 // 从 HWiNFO 共享内存读取系统监控数据
 
+use std::collections::HashMap;
+use crate::data::SensorValue;
+
 // ============================================================================
 // Windows 平台实现
 // ============================================================================
@@ -96,6 +99,17 @@ pub struct SensorEntry {
     pub value_min: f64,
     pub value_max: f64,
     pub value_avg: f64,
+}
+
+impl SensorEntry {
+    /// 获取显示名称（优先用户自定义名称）
+    pub fn label(&self) -> &str {
+        if !self.name_user.is_empty() {
+            &self.name_user
+        } else {
+            &self.name_original
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -236,6 +250,31 @@ impl HWiNFOCollector {
         }
 
         entries.into_iter()
+    }
+
+    /// 获取所有传感器数据（按原始名称索引，同名传感器自动编号）
+    pub fn get_all_entries(&self) -> HashMap<String, SensorValue> {
+        let mut name_counter: HashMap<String, usize> = HashMap::new();
+        let mut result: HashMap<String, SensorValue> = HashMap::new();
+
+        for entry in self.iter_entries() {
+            let base_name = entry.name_original.clone();
+            let count = name_counter.get(&base_name).copied().unwrap_or(0);
+
+            let final_name = if count == 0 {
+                base_name.clone()
+            } else {
+                format!("{} #{}", base_name, count + 1)
+            };
+
+            name_counter.insert(base_name, count + 1);
+            result.insert(final_name, SensorValue {
+                value: entry.value,
+                unit: entry.unit,
+            });
+        }
+
+        result
     }
 }
 

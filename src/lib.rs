@@ -11,7 +11,6 @@ pub mod hwinfo_manager;
 pub mod monitor;
 
 use crate::data::{
-    CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, SystemInfo, BatteryInfo,
     ProcessInfo, AggregatedProcessInfo, Sample, MonitorConfig, ProcessFilter,
 };
 use crate::monitor::MonitorCore;
@@ -21,352 +20,6 @@ use crate::collector::sysinfo::SysinfoCollector;
 // ============================================================================
 // PyO3 绑定类
 // ============================================================================
-
-// ----------------------------------------------------------------------------
-// PyCPUInfo - CPU 信息类
-// ----------------------------------------------------------------------------
-
-/// CPU 信息类
-///
-/// 包含 CPU 使用率、温度、功率等信息
-#[pyclass(name = "CPUInfo")]
-#[derive(Debug, Clone)]
-pub struct PyCPUInfo {
-    inner: CPUInfo,
-}
-
-#[pymethods]
-impl PyCPUInfo {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: CPUInfo::default(),
-        }
-    }
-
-    /// CPU 使用率百分比 (0-100)
-    #[getter]
-    fn percent(&self) -> f64 {
-        self.inner.percent
-    }
-
-    /// CPU 温度 (摄氏度)，可能为 None
-    #[getter]
-    fn temperature(&self) -> Option<f64> {
-        self.inner.temperature
-    }
-
-    /// CPU 功耗 (瓦特)，可能为 None
-    #[getter]
-    fn power(&self) -> Option<f64> {
-        self.inner.power
-    }
-
-    /// CPU 核心频率 (GHz)，可能为 None
-    #[getter]
-    fn clock_speed(&self) -> Option<f64> {
-        self.inner.clock_speed
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "CPUInfo(percent={:.1}%, temperature={:?}, power={:?}, clock_speed={:?} GHz)",
-            self.inner.percent, self.inner.temperature, self.inner.power, self.inner.clock_speed
-        )
-    }
-}
-
-impl From<CPUInfo> for PyCPUInfo {
-    fn from(info: CPUInfo) -> Self {
-        Self { inner: info }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// PyGPUInfo - GPU 信息类
-// ----------------------------------------------------------------------------
-
-/// GPU 信息类
-///
-/// 包含 GPU 使用率、温度、功率、显存等信息
-#[pyclass(name = "GPUInfo")]
-#[derive(Debug, Clone)]
-pub struct PyGPUInfo {
-    inner: GPUInfo,
-}
-
-#[pymethods]
-impl PyGPUInfo {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: GPUInfo::default(),
-        }
-    }
-
-    /// GPU 使用率百分比 (0-100)
-    #[getter]
-    fn percent(&self) -> f64 {
-        self.inner.percent
-    }
-
-    /// GPU 温度 (摄氏度)，可能为 None
-    #[getter]
-    fn temperature(&self) -> Option<f64> {
-        self.inner.temperature
-    }
-
-    /// GPU 功耗 (瓦特)，可能为 None
-    #[getter]
-    fn power(&self) -> Option<f64> {
-        self.inner.power
-    }
-
-    /// GPU 显存使用量 (MB)，可能为 None
-    #[getter]
-    fn memory_mb(&self) -> Option<f64> {
-        self.inner.memory_mb
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "GPUInfo(percent={:.1}%, temperature={:?}, power={:?}, memory_mb={:?})",
-            self.inner.percent, self.inner.temperature, self.inner.power, self.inner.memory_mb
-        )
-    }
-}
-
-impl From<GPUInfo> for PyGPUInfo {
-    fn from(info: GPUInfo) -> Self {
-        Self { inner: info }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// PyMemoryInfo - 内存信息类
-// ----------------------------------------------------------------------------
-
-/// 内存信息类
-///
-/// 包含内存使用率、已用/总量、提交内存等信息
-#[pyclass(name = "MemoryInfo")]
-#[derive(Debug, Clone)]
-pub struct PyMemoryInfo {
-    inner: MemoryInfo,
-}
-
-#[pymethods]
-impl PyMemoryInfo {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: MemoryInfo::default(),
-        }
-    }
-
-    /// 内存使用率百分比 (0-100)
-    #[getter]
-    fn percent(&self) -> f64 {
-        self.inner.percent
-    }
-
-    /// 已用内存 (MB)
-    #[getter]
-    fn used_mb(&self) -> f64 {
-        self.inner.used_mb
-    }
-
-    /// 总内存 (MB)
-    #[getter]
-    fn total_mb(&self) -> f64 {
-        self.inner.total_mb
-    }
-
-    /// 已提交内存 (MB)
-    #[getter]
-    fn committed_mb(&self) -> f64 {
-        self.inner.committed_mb
-    }
-
-    /// 提交内存上限 (MB)
-    #[getter]
-    fn committed_limit_mb(&self) -> f64 {
-        self.inner.committed_limit_mb
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "MemoryInfo(percent={:.1}%, used={:.1}MB, total={:.1}MB)",
-            self.inner.percent, self.inner.used_mb, self.inner.total_mb
-        )
-    }
-}
-
-impl From<MemoryInfo> for PyMemoryInfo {
-    fn from(info: MemoryInfo) -> Self {
-        Self { inner: info }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// PyNetworkInfo - 网络信息类
-// ----------------------------------------------------------------------------
-
-/// 网络信息类
-///
-/// 包含上传/下载速度等信息
-#[pyclass(name = "NetworkInfo")]
-#[derive(Debug, Clone)]
-pub struct PyNetworkInfo {
-    inner: NetworkInfo,
-}
-
-#[pymethods]
-impl PyNetworkInfo {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: NetworkInfo::default(),
-        }
-    }
-
-    /// 上传速度 (bytes/s)
-    #[getter]
-    fn upload_speed(&self) -> f64 {
-        self.inner.upload_speed
-    }
-
-    /// 下载速度 (bytes/s)
-    #[getter]
-    fn download_speed(&self) -> f64 {
-        self.inner.download_speed
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "NetworkInfo(upload={:.1}B/s, download={:.1}B/s)",
-            self.inner.upload_speed, self.inner.download_speed
-        )
-    }
-}
-
-impl From<NetworkInfo> for PyNetworkInfo {
-    fn from(info: NetworkInfo) -> Self {
-        Self { inner: info }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// PyBatteryInfo - 电池信息类
-// ----------------------------------------------------------------------------
-
-/// 电池信息类
-///
-/// 包含电池电量等信息（笔记本电脑）
-#[pyclass(name = "BatteryInfo")]
-#[derive(Debug, Clone)]
-pub struct PyBatteryInfo {
-    inner: BatteryInfo,
-}
-
-#[pymethods]
-impl PyBatteryInfo {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: BatteryInfo::default(),
-        }
-    }
-
-    /// 电池电量百分比 (0-100)
-    #[getter]
-    fn charge_level(&self) -> f64 {
-        self.inner.charge_level
-    }
-
-    fn __repr__(&self) -> String {
-        format!("BatteryInfo(charge={:.1}%)", self.inner.charge_level)
-    }
-}
-
-impl From<BatteryInfo> for PyBatteryInfo {
-    fn from(info: BatteryInfo) -> Self {
-        Self { inner: info }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// PySystemInfo - 系统信息类
-// ----------------------------------------------------------------------------
-
-/// 系统信息类
-///
-/// 包含 CPU、GPU、内存、网络、电池等系统级性能数据
-#[pyclass(name = "SystemInfo")]
-#[derive(Debug, Clone)]
-pub struct PySystemInfo {
-    inner: SystemInfo,
-}
-
-#[pymethods]
-impl PySystemInfo {
-    #[new]
-    fn new() -> Self {
-        Self {
-            inner: SystemInfo::default(),
-        }
-    }
-
-    /// CPU 信息
-    #[getter]
-    fn cpu(&self) -> PyCPUInfo {
-        PyCPUInfo::from(self.inner.cpu.clone())
-    }
-
-    /// GPU 信息
-    #[getter]
-    fn gpu(&self) -> PyGPUInfo {
-        PyGPUInfo::from(self.inner.gpu.clone())
-    }
-
-    /// 内存信息
-    #[getter]
-    fn memory(&self) -> PyMemoryInfo {
-        PyMemoryInfo::from(self.inner.memory.clone())
-    }
-
-    /// 网络信息
-    #[getter]
-    fn network(&self) -> PyNetworkInfo {
-        PyNetworkInfo::from(self.inner.network.clone())
-    }
-
-    /// 电池信息
-    #[getter]
-    fn battery(&self) -> PyBatteryInfo {
-        PyBatteryInfo::from(self.inner.battery.clone())
-    }
-
-    /// 系统总功耗 (W)
-    #[getter]
-    fn system_power(&self) -> f64 {
-        self.inner.system_power
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "SystemInfo(cpu={:.1}%, gpu={:.1}%, memory={:.1}%, battery={:.1}%, power={:.1}W)",
-            self.inner.cpu.percent, self.inner.gpu.percent, self.inner.memory.percent,
-            self.inner.battery.charge_level, self.inner.system_power
-        )
-    }
-}
-
-impl From<SystemInfo> for PySystemInfo {
-    fn from(info: SystemInfo) -> Self {
-        Self { inner: info }
-    }
-}
 
 // ----------------------------------------------------------------------------
 // PyProcessInfo - 进程信息类
@@ -558,7 +211,7 @@ impl PySample {
         Self {
             inner: Sample {
                 timestamp: chrono::Utc::now(),
-                system: SystemInfo::default(),
+                hwinfo_raw: std::collections::HashMap::new(),
                 processes: None,
                 aggregated: None,
                 top_n_cpu: None,
@@ -573,10 +226,17 @@ impl PySample {
         self.inner.timestamp.to_rfc3339()
     }
 
-    /// 系统信息（每次采集必须返回）
+    /// HWiNFO 所有传感器原始数据（字典格式）
     #[getter]
-    fn system(&self) -> PySystemInfo {
-        PySystemInfo::from(self.inner.system.clone())
+    fn hwinfo_raw(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let dict = PyDict::new_bound(py);
+        for (name, value) in &self.inner.hwinfo_raw {
+            let value_dict = PyDict::new_bound(py);
+            value_dict.set_item("value", value.value)?;
+            value_dict.set_item("unit", &value.unit)?;
+            dict.set_item(name, value_dict)?;
+        }
+        Ok(dict.into())
     }
 
     /// 目标进程明细列表，可能为 None
@@ -717,43 +377,15 @@ impl PySample {
 
         dict.set_item("timestamp", self.inner.timestamp.to_rfc3339())?;
 
-        // system 必须返回
-        let system = &self.inner.system;
-        let sys_dict = PyDict::new_bound(py);
-
-        let cpu_dict = PyDict::new_bound(py);
-        cpu_dict.set_item("percent", system.cpu.percent)?;
-        cpu_dict.set_item("temperature", system.cpu.temperature)?;
-        cpu_dict.set_item("power", system.cpu.power)?;
-        sys_dict.set_item("cpu", cpu_dict)?;
-
-        let gpu_dict = PyDict::new_bound(py);
-        gpu_dict.set_item("percent", system.gpu.percent)?;
-        gpu_dict.set_item("temperature", system.gpu.temperature)?;
-        gpu_dict.set_item("power", system.gpu.power)?;
-        gpu_dict.set_item("memory_mb", system.gpu.memory_mb)?;
-        sys_dict.set_item("gpu", gpu_dict)?;
-
-        let mem_dict = PyDict::new_bound(py);
-        mem_dict.set_item("percent", system.memory.percent)?;
-        mem_dict.set_item("used_mb", system.memory.used_mb)?;
-        mem_dict.set_item("total_mb", system.memory.total_mb)?;
-        mem_dict.set_item("committed_mb", system.memory.committed_mb)?;
-        mem_dict.set_item("committed_limit_mb", system.memory.committed_limit_mb)?;
-        sys_dict.set_item("memory", mem_dict)?;
-
-        let net_dict = PyDict::new_bound(py);
-        net_dict.set_item("upload_speed", system.network.upload_speed)?;
-        net_dict.set_item("download_speed", system.network.download_speed)?;
-        sys_dict.set_item("network", net_dict)?;
-
-        let battery_dict = PyDict::new_bound(py);
-        battery_dict.set_item("charge_level", system.battery.charge_level)?;
-        sys_dict.set_item("battery", battery_dict)?;
-
-        sys_dict.set_item("system_power", system.system_power)?;
-
-        dict.set_item("system", sys_dict)?;
+        // hwinfo_raw 必须返回
+        let hwinfo_dict = PyDict::new_bound(py);
+        for (name, value) in &self.inner.hwinfo_raw {
+            let value_dict = PyDict::new_bound(py);
+            value_dict.set_item("value", value.value)?;
+            value_dict.set_item("unit", &value.unit)?;
+            hwinfo_dict.set_item(name, value_dict)?;
+        }
+        dict.set_item("hwinfo_raw", hwinfo_dict)?;
 
         // processes 可选
         if let Some(processes) = &self.inner.processes {
@@ -1300,16 +932,10 @@ fn list_hwinfo_sensors() -> PyResult<Vec<PySensorEntry>> {
 ///     result = m.get_result()
 ///     for sample in result.samples:
 ///         print(f"Time: {sample.timestamp}")
-///         print(f"  CPU: {sample.system.cpu.percent}%")
+///         print(f"  HWiNFO sensors: {len(sample.hwinfo_raw)}")
 #[pymodule]
 fn perfwin(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // 注册类
-    m.add_class::<PyCPUInfo>()?;
-    m.add_class::<PyGPUInfo>()?;
-    m.add_class::<PyMemoryInfo>()?;
-    m.add_class::<PyNetworkInfo>()?;
-    m.add_class::<PyBatteryInfo>()?;
-    m.add_class::<PySystemInfo>()?;
     m.add_class::<PyProcessInfo>()?;
     m.add_class::<PyAggregatedProcessInfo>()?;
     m.add_class::<PySample>()?;

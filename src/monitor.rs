@@ -162,33 +162,10 @@ fn collect_sample(
     pdh_collector: &mut Option<PdhCollector>,
     hwinfo_collector: &Option<HWiNFOCollector>,
 ) -> Sample {
-    // system 必须返回
-    let mut system_info = sysinfo_collector.get_system_info();
-
-    match hwinfo_collector {
-        Some(hwinfo) => {
-            match hwinfo.get_system_info() {
-                Ok(hwinfo_data) => {
-                    system_info.cpu.percent = hwinfo_data.cpu.percent;
-                    system_info.gpu.percent = hwinfo_data.gpu.percent;
-                    system_info.cpu.temperature = hwinfo_data.cpu.temperature;
-                    system_info.cpu.power = hwinfo_data.cpu.power;
-                    system_info.cpu.clock_speed = hwinfo_data.cpu.clock_speed;
-                    system_info.gpu.temperature = hwinfo_data.gpu.temperature;
-                    system_info.gpu.power = hwinfo_data.gpu.power;
-                    system_info.network = hwinfo_data.network;
-                    system_info.battery = hwinfo_data.battery;
-                    system_info.system_power = hwinfo_data.system_power;
-                }
-                Err(e) => {
-                    log::warn!("HWiNFO get_system_info failed: {}", e);
-                }
-            }
-        }
-        None => {
-            log::warn!("HWiNFO not available, cannot get CPU/GPU usage");
-        }
-    }
+    // 获取 HWiNFO 原始数据
+    let hwinfo_raw = hwinfo_collector.as_ref()
+        .map(|h| h.get_all_entries())
+        .unwrap_or_default();
 
     // 进程数据（有筛选条件时返回）
     let processes = if config.process_filter.is_some() {
@@ -241,7 +218,7 @@ fn collect_sample(
 
     Sample {
         timestamp: Utc::now(),
-        system: system_info,
+        hwinfo_raw,
         processes,
         aggregated,
         top_n_cpu,

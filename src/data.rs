@@ -1,56 +1,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
+use std::collections::HashMap;
 
-/// CPU 系统信息
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CPUInfo {
-    pub percent: f64,
-    pub temperature: Option<f64>,
-    pub power: Option<f64>,
-    pub clock_speed: Option<f64>,  // GHz
-}
-
-/// GPU 系统信息
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GPUInfo {
-    pub percent: f64,
-    pub temperature: Option<f64>,
-    pub power: Option<f64>,
-    pub memory_mb: Option<f64>,
-}
-
-/// 内存系统信息
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MemoryInfo {
-    pub percent: f64,
-    pub used_mb: f64,
-    pub total_mb: f64,
-    pub committed_mb: f64,
-    pub committed_limit_mb: f64,
-}
-
-/// 网络系统信息
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NetworkInfo {
-    pub upload_speed: f64,      // bytes/s
-    pub download_speed: f64,    // bytes/s
-}
-
-/// 电池信息（笔记本电脑）
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct BatteryInfo {
-    pub charge_level: f64,      // 电量百分比 (0-100)
-}
-
-/// 系统级信息汇总
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SystemInfo {
-    pub cpu: CPUInfo,
-    pub gpu: GPUInfo,
-    pub memory: MemoryInfo,
-    pub network: NetworkInfo,
-    pub battery: BatteryInfo,
-    pub system_power: f64,      // 系统总功耗 (W)
+/// HWiNFO 传感器数据值
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SensorValue {
+    pub value: f64,
+    pub unit: String,
 }
 
 /// 进程级信息
@@ -80,12 +36,12 @@ pub struct AggregatedProcessInfo {
 }
 
 /// 单次采样数据
-/// 系统级数据每次采集都返回，进程级数据按筛选条件返回
+/// HWiNFO原始数据每次采集都返回，进程级数据按筛选条件返回
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sample {
     pub timestamp: DateTime<Utc>,
-    /// 系统级数据 - 每次采集强制返回
-    pub system: SystemInfo,
+    /// HWiNFO 原始数据 - 所有传感器数据（按原始名称索引）
+    pub hwinfo_raw: HashMap<String, SensorValue>,
     /// 进程明细数据 - 仅在有筛选条件时返回
     pub processes: Option<Vec<ProcessInfo>>,
     /// 进程汇总数据 - 仅在按进程名筛选时返回（多个同名PID聚合）

@@ -1,7 +1,7 @@
 // sysinfo 采集器 - 进程级 CPU/内存/句柄
 
 use sysinfo::System;
-use crate::data::{ProcessInfo, SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, BatteryInfo};
+use crate::data::ProcessInfo;
 use std::time::Instant;
 
 #[cfg(target_os = "windows")]
@@ -142,58 +142,7 @@ impl SysinfoCollector {
             .collect()
     }
 
-    /// 获取系统级信息（仅内存，CPU/GPU 使用率由 HWiNFO 提供）
-    pub fn get_system_info(&mut self) -> SystemInfo {
-        self.refresh();
-
-        // 刷新内存信息
-        self.sys.refresh_memory_specifics(
-            sysinfo::MemoryRefreshKind::everything()
-        );
-
-        let total_memory = self.sys.total_memory() as f64 / 1024.0 / 1024.0;  // MB
-        let used_memory = self.sys.used_memory() as f64 / 1024.0 / 1024.0;    // MB
-        let memory_percent = if total_memory > 0.0 {
-            used_memory / total_memory * 100.0
-        } else {
-            0.0
-        };
-
-        // 获取系统提交内存
-        let (committed_mb, committed_limit_mb) = get_system_committed_memory();
-
-        // CPU/GPU 使用率由 HWiNFO 提供，sysinfo 不提供
-        SystemInfo {
-            cpu: CPUInfo {
-                percent: 0.0,        // 由 HWiNFO 提供
-                temperature: None,   // 由 HWiNFO 提供
-                power: None,         // 由 HWiNFO 提供
-                clock_speed: None,   // 由 HWiNFO 提供
-            },
-            gpu: GPUInfo {
-                percent: 0.0,        // 由 HWiNFO 提供
-                temperature: None,
-                power: None,
-                memory_mb: None,
-            },
-            memory: MemoryInfo {
-                percent: memory_percent,
-                used_mb: used_memory,
-                total_mb: total_memory,
-                committed_mb,
-                committed_limit_mb,
-            },
-            network: NetworkInfo {
-                upload_speed: 0.0,   // 由 HWiNFO 提供
-                download_speed: 0.0, // 由 HWiNFO 提供
-            },
-            battery: BatteryInfo {
-                charge_level: 0.0,   // 由 HWiNFO 提供
-            },
-            system_power: 0.0,       // 由 HWiNFO 提供
-        }
     }
-}
 
 impl Default for SysinfoCollector {
     fn default() -> Self {
