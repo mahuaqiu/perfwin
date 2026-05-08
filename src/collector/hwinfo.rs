@@ -356,4 +356,31 @@ mod tests {
         };
         assert_eq!(entry.label(), "User");
     }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_duplicate_sensor_names() {
+        // 测试同名传感器编号逻辑
+        // 注意：需要HWiNFO正在运行
+        if let Ok(collector) = HWiNFOCollector::new() {
+            let entries = collector.get_all_entries();
+
+            // 验证至少有100个传感器
+            assert!(entries.len() > 100, "应该有至少100个传感器");
+
+            // 验证同名传感器编号格式
+            let duplicate_names: Vec<_> = entries.keys()
+                .filter(|k| k.contains(" #"))
+                .collect();
+
+            for name in &duplicate_names {
+                // 编号格式应该是 "#2", "#3" 等
+                assert!(name.contains(" #2") || name.contains(" #3"),
+                    "同名编号格式正确: {}", name);
+            }
+
+            println!("测试通过：{}个传感器，{}个同名传感器",
+                entries.len(), duplicate_names.len());
+        }
+    }
 }

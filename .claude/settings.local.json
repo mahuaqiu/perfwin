@@ -47,7 +47,9 @@
       "Bash(taskkill *)",
       "Bash(powershell *)",
       "Bash(cmd *)",
-      "Bash(cargo build *)"
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(git commit *)"
     ]
   }
 }
