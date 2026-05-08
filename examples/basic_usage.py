@@ -59,13 +59,24 @@ def example_process_filter_by_name():
     for sample in result.samples:
         print(f"\n时间: {sample.timestamp}")
 
-        # 系统信息（每次必须返回）
-        s = sample.system
-        print(f"系统 CPU: {s.cpu.percent:.1f}% | GPU: {s.gpu.percent:.1f}% | 内存: {s.memory.percent:.1f}%")
-        if s.cpu.temperature:
-            print(f"CPU 温度: {s.cpu.temperature:.1f}°C | 功耗: {s.cpu.power:.1f}W")
-        if s.gpu.temperature:
-            print(f"GPU 温度: {s.gpu.temperature:.1f}°C | 功耗: {s.gpu.power:.1f}W")
+        # HWiNFO 传感器数据
+        hwinfo = sample.hwinfo_raw
+        print(f"\n【HWiNFO 传感器数据】")
+        print(f"  传感器总数: {len(hwinfo)}")
+
+        # 示例：查找特定传感器
+        cpu_temp = hwinfo.get("CPU Package", {}).get("value")
+        if cpu_temp:
+            print(f"  CPU 温度: {cpu_temp:.1f}°C")
+
+        gpu_temp = hwinfo.get("GPU Temperature", {}).get("value")
+        if gpu_temp:
+            print(f"  GPU 温度: {gpu_temp:.1f}°C")
+
+        # 打印前10个传感器作为示例
+        print(f"\n前10个传感器:")
+        for i, (name, data) in enumerate(list(hwinfo.items())[:10]):
+            print(f"  {name}: {data['value']} {data['unit']}")
 
         # 进程明细
         if sample.processes:
@@ -108,7 +119,15 @@ def example_process_filter_by_names():
 
     for sample in result.samples[:2]:  # 只显示前2个样本
         print(f"\n时间: {sample.timestamp}")
-        print(f"系统: CPU={sample.system.cpu.percent:.1f}%, GPU={sample.system.gpu.percent:.1f}%")
+
+        # HWiNFO 传感器总数
+        hwinfo = sample.hwinfo_raw
+        print(f"传感器总数: {len(hwinfo)}")
+
+        # 示例：查找温度传感器
+        for name, data in list(hwinfo.items())[:5]:
+            if "Temp" in name or "温度" in data['unit']:
+                print(f"  {name}: {data['value']} {data['unit']}")
 
         if sample.aggregated:
             print("汇总:")
@@ -135,6 +154,15 @@ def example_top_n_processes():
 
     for sample in result.samples[:2]:
         print(f"\n时间: {sample.timestamp}")
+
+        # HWiNFO 传感器示例
+        hwinfo = sample.hwinfo_raw
+        print(f"传感器总数: {len(hwinfo)}")
+
+        # 查找 CPU/GPU 相关传感器
+        for name, data in list(hwinfo.items())[:15]:
+            if "CPU" in name or "GPU" in name:
+                print(f"  {name}: {data['value']} {data['unit']}")
 
         # Top N CPU 进程（同时显示 CPU 和 GPU）
         if sample.top_n_cpu:
@@ -193,18 +221,15 @@ def example_full_monitoring():
         print(f"\n=== 最终采样数据 ===")
         print(f"时间: {sample.timestamp}")
 
-        # 系统级数据
-        s = sample.system
-        print(f"\n【系统级数据】")
-        print(f"  CPU 使用率: {s.cpu.percent:.1f}%")
-        print(f"  CPU 温度: {s.cpu.temperature:.1f}°C" if s.cpu.temperature else "  CPU 温度: N/A")
-        print(f"  CPU 功耗: {s.cpu.power:.1f}W" if s.cpu.power else "  CPU 功耗: N/A")
-        print(f"  GPU 使用率: {s.gpu.percent:.1f}%")
-        print(f"  GPU 温度: {s.gpu.temperature:.1f}°C" if s.gpu.temperature else "  GPU 温度: N/A")
-        print(f"  GPU 功耗: {s.gpu.power:.1f}W" if s.gpu.power else "  GPU 功耗: N/A")
-        print(f"  内存使用率: {s.memory.percent:.1f}%")
-        print(f"  上传速度: {s.network.upload_speed/1024:.1f} KB/s")
-        print(f"  下载速度: {s.network.download_speed/1024:.1f} KB/s")
+        # HWiNFO 传感器数据
+        hwinfo = sample.hwinfo_raw
+        print(f"\n【HWiNFO 传感器数据】")
+        print(f"  传感器总数: {len(hwinfo)}")
+
+        # 打印前20个传感器
+        print(f"\n前20个传感器:")
+        for i, (name, data) in enumerate(list(hwinfo.items())[:20]):
+            print(f"  {name}: {data['value']} {data['unit']}")
 
         # 进程汇总
         if sample.aggregated:
@@ -230,7 +255,7 @@ def example_full_monitoring():
     print(f"  样本数: {len(dicts)}")
     if dicts:
         last_dict = dicts[-1]
-        print(f"  system.cpu.percent: {last_dict['system']['cpu']['percent']:.1f}%")
+        print(f"  hwinfo_raw 传感器数: {len(last_dict['hwinfo_raw'])}")
         if 'aggregated' in last_dict and last_dict['aggregated']:
             print(f"  aggregated[0].name: {last_dict['aggregated'][0]['name']}")
 
