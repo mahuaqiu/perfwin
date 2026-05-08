@@ -49,7 +49,14 @@
       "Bash(cmd *)",
       "Bash(cargo build *)",
       "Bash(cargo test *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git tag *)",
+      "Bash(pytest tests/test_perfwin.py -v)",
+      "Bash(python *)",
+      "Bash(pip show *)",
+      "Bash(pip list *)",
+      "Bash(maturin build *)",
+      "Bash(pip install *)"
     ]
   }
 }
