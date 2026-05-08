@@ -1,11 +1,6 @@
 // HWiNFO 采集器 - 系统级数据
 // 从 HWiNFO 共享内存读取系统监控数据
 
-use crate::data::{SystemInfo, CPUInfo, GPUInfo, MemoryInfo, NetworkInfo, BatteryInfo};
-use serde::Deserialize;
-use std::path::PathBuf;
-use regex::Regex;
-
 // ============================================================================
 // Windows 平台实现
 // ============================================================================
@@ -103,17 +98,6 @@ pub struct SensorEntry {
     pub value_avg: f64,
 }
 
-impl SensorEntry {
-    /// 获取显示名称（优先用户自定义名称）
-    pub fn label(&self) -> &str {
-        if !self.name_user.is_empty() {
-            &self.name_user
-        } else {
-            &self.name_original
-        }
-    }
-}
-
 #[cfg(target_os = "windows")]
 impl TryFrom<u32> for SensorType {
     type Error = ();
@@ -135,135 +119,6 @@ impl TryFrom<u32> for SensorType {
 }
 
 // ============================================================================
-// 传感器配置
-// ============================================================================
-
-/// HWiNFO 传感器映射配置
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct HWiNFOConfig {
-    pub cpu: CpuConfig,
-    pub gpu: GpuConfig,
-    pub system: SystemConfig,
-    pub network: NetworkConfig,
-    pub battery: BatteryConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct CpuConfig {
-    pub usage_name: String,
-    pub usage_unit: String,
-    pub temperature_name: String,
-    pub temperature_unit: String,
-    pub power_name: Option<String>,
-    pub power_unit: Option<String>,
-    pub clock_pattern: Option<String>,
-    pub clock_unit: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct GpuConfig {
-    pub usage_name: String,
-    pub usage_unit: String,
-    pub temperature_name: String,
-    pub temperature_unit: String,
-    pub power_name: Option<String>,
-    pub power_unit: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct SystemConfig {
-    pub power_name: Option<String>,
-    pub power_unit: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct NetworkConfig {
-    pub download_name: Option<String>,
-    pub download_unit: Option<String>,
-    pub upload_name: Option<String>,
-    pub upload_unit: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct BatteryConfig {
-    pub charge_name: Option<String>,
-    pub charge_unit: Option<String>,
-}
-
-impl HWiNFOConfig {
-    /// 从文件加载配置
-    pub fn load(path: &PathBuf) -> anyhow::Result<Self> {
-        let content = std::fs::read_to_string(path)?;
-        let config: HWiNFOConfig = toml::from_str(&content)?;
-        Ok(config)
-    }
-
-    /// 搜索配置文件路径
-    pub fn find_config_path() -> Option<PathBuf> {
-        let possible_paths: Vec<PathBuf> = vec![
-            // 当前工作目录
-            PathBuf::from("hwinfo_sensors.toml"),
-            // 模块目录（打包后）
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|d| d.join("hwinfo_sensors.toml")))
-                .unwrap_or_else(|| PathBuf::new()),
-            // 项目根目录（开发模式）
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().and_then(|d| d.parent().map(|dd| dd.join("hwinfo_sensors.toml"))))
-                .unwrap_or_else(|| PathBuf::new()),
-        ];
-
-        for path in possible_paths.iter() {
-            if !path.as_os_str().is_empty() && path.exists() {
-                return Some(path.clone());
-            }
-        }
-
-        None
-    }
-
-    /// 获取默认配置（硬编码备份）
-    pub fn default_config() -> Self {
-        Self {
-            cpu: CpuConfig {
-                usage_name: "Total CPU Usage".to_string(),
-                usage_unit: "%".to_string(),
-                temperature_name: "CPU Package".to_string(),
-                temperature_unit: "C".to_string(),
-                power_name: Some("CPU Package Power".to_string()),
-                power_unit: Some("W".to_string()),
-                clock_pattern: Some("(Core [0-9]+ Clock|P-core [0-9]+ Clock|E-core [0-9]+ Clock)".to_string()),
-                clock_unit: Some("MHz".to_string()),
-            },
-            gpu: GpuConfig {
-                usage_name: "GPU D3D Usage".to_string(),
-                usage_unit: "%".to_string(),
-                temperature_name: "GPU Temperature".to_string(),
-                temperature_unit: "C".to_string(),
-                power_name: Some("GPU Power".to_string()),
-                power_unit: Some("W".to_string()),
-            },
-            system: SystemConfig {
-                power_name: Some("Total System Power".to_string()),
-                power_unit: Some("W".to_string()),
-            },
-            network: NetworkConfig {
-                download_name: Some("Current DL rate".to_string()),
-                download_unit: Some("KB/s".to_string()),
-                upload_name: Some("Current UP rate".to_string()),
-                upload_unit: Some("KB/s".to_string()),
-            },
-            battery: BatteryConfig {
-                charge_name: Some("Charge Level".to_string()),
-                charge_unit: Some("%".to_string()),
-            },
-        }
-    }
-}
-
-// ============================================================================
 // HWiNFO 采集器
 // ============================================================================
 
@@ -273,7 +128,6 @@ pub struct HWiNFOCollector {
     handle: HANDLE,
     mapped_ptr: MEMORY_MAPPED_VIEW_ADDRESS,
     header: *const HWiNFOHeader,
-    config: HWiNFOConfig,
 }
 
 #[cfg(target_os = "windows")]
@@ -291,11 +145,6 @@ impl std::fmt::Debug for HWiNFOCollector {
 impl HWiNFOCollector {
     /// 创建新的 HWiNFO 采集器
     pub fn new() -> anyhow::Result<Self> {
-        // 加载配置
-        let config = HWiNFOConfig::find_config_path()
-            .and_then(|p| HWiNFOConfig::load(&p).ok())
-            .unwrap_or_else(HWiNFOConfig::default_config);
-
         // 打开共享内存
         let name_wide: Vec<u16> = HWINFO_SHARED_MEM_NAME
             .encode_utf16()
@@ -341,7 +190,6 @@ impl HWiNFOCollector {
             handle,
             mapped_ptr,
             header,
-            config,
         })
     }
 
@@ -389,153 +237,6 @@ impl HWiNFOCollector {
 
         entries.into_iter()
     }
-
-    /// 按名称精确匹配传感器值
-    /// 找不到时返回 0.0
-    fn find_by_name(&self, target_name: &str, target_unit: &str) -> f64 {
-        let target_name_lower = target_name.to_lowercase();
-        let target_unit_lower = target_unit.to_lowercase();
-
-        for entry in self.iter_entries() {
-            let name_lower = entry.label().to_lowercase();
-            let unit_lower = entry.unit.to_lowercase();
-
-            // 名称包含目标名称，且单位包含目标单位
-            if name_lower.contains(&target_name_lower) && unit_lower.contains(&target_unit_lower) {
-                let value = entry.value;
-                // 如果单位是 KB/s，转换为 B/s
-                if unit_lower.contains("kb/s") || unit_lower.contains("kb") {
-                    return value * 1024.0;
-                }
-                return value;
-            }
-        }
-
-        0.0  // 找不到返回 0
-    }
-
-    /// 按名称精确匹配传感器值（可选）
-    /// 找不到时返回 None
-    fn find_by_name_opt(&self, target_name: &str, target_unit: &str) -> Option<f64> {
-        let target_name_lower = target_name.to_lowercase();
-        let target_unit_lower = target_unit.to_lowercase();
-
-        for entry in self.iter_entries() {
-            let name_lower = entry.label().to_lowercase();
-            let unit_lower = entry.unit.to_lowercase();
-
-            if name_lower.contains(&target_name_lower) && unit_lower.contains(&target_unit_lower) {
-                let value = entry.value;
-                // 如果单位是 KB/s，转换为 B/s
-                if unit_lower.contains("kb/s") || unit_lower.contains("kb") {
-                    return Some(value * 1024.0);
-                }
-                return Some(value);
-            }
-        }
-
-        None
-    }
-
-    /// 按正则匹配传感器值并求平均（可选）
-    /// 用于匹配多个核心时钟频率，如 "Core 0 Clock", "Core 1 Clock" 等
-    /// 返回所有匹配项的平均值
-    fn find_by_pattern_avg(&self, pattern: &str, target_unit: &str) -> Option<f64> {
-        let re = Regex::new(pattern).ok()?;
-        let target_unit_lower = target_unit.to_lowercase();
-
-        let mut sum = 0.0;
-        let mut count = 0;
-
-        for entry in self.iter_entries() {
-            let name = entry.label();
-            let unit_lower = entry.unit.to_lowercase();
-
-            if re.is_match(name) && unit_lower.contains(&target_unit_lower) {
-                sum += entry.value;
-                count += 1;
-            }
-        }
-
-        if count > 0 {
-            Some(sum / count as f64)
-        } else {
-            None
-        }
-    }
-
-    /// 获取系统信息
-    pub fn get_system_info(&self) -> anyhow::Result<SystemInfo> {
-        if !self.is_valid() {
-            return Err(anyhow::anyhow!("HWiNFO 共享内存无效"));
-        }
-
-        let config = &self.config;
-
-        Ok(SystemInfo {
-            cpu: CPUInfo {
-                percent: self.find_by_name(&config.cpu.usage_name, &config.cpu.usage_unit),
-                temperature: self.find_by_name_opt(&config.cpu.temperature_name, &config.cpu.temperature_unit),
-                power: config.cpu.power_name.as_ref()
-                    .zip(config.cpu.power_unit.as_ref())
-                    .and_then(|(n, u)| self.find_by_name_opt(n, u)),
-                clock_speed: config.cpu.clock_pattern.as_ref()
-                    .zip(config.cpu.clock_unit.as_ref())
-                    .and_then(|(p, u)| {
-                        self.find_by_pattern_avg(p, u).map(|v| {
-                            // MHz 转 GHz
-                            if u.to_lowercase().contains("mhz") {
-                                v / 1000.0
-                            } else {
-                                v
-                            }
-                        })
-                    }),
-            },
-            gpu: GPUInfo {
-                percent: self.find_by_name(&config.gpu.usage_name, &config.gpu.usage_unit),
-                temperature: self.find_by_name_opt(&config.gpu.temperature_name, &config.gpu.temperature_unit),
-                power: config.gpu.power_name.as_ref()
-                    .zip(config.gpu.power_unit.as_ref())
-                    .and_then(|(n, u)| self.find_by_name_opt(n, u)),
-                memory_mb: None,
-            },
-            memory: MemoryInfo::default(),
-            network: NetworkInfo {
-                download_speed: config.network.download_name.as_ref()
-                    .zip(config.network.download_unit.as_ref())
-                    .map(|(n, u)| self.find_by_name(n, u))
-                    .unwrap_or(0.0),
-                upload_speed: config.network.upload_name.as_ref()
-                    .zip(config.network.upload_unit.as_ref())
-                    .map(|(n, u)| self.find_by_name(n, u))
-                    .unwrap_or(0.0),
-            },
-            battery: BatteryInfo {
-                charge_level: config.battery.charge_name.as_ref()
-                    .zip(config.battery.charge_unit.as_ref())
-                    .map(|(n, u)| self.find_by_name(n, u))
-                    .unwrap_or(0.0),
-            },
-            // system_power: 优先 Total System Power，fallback 到 CPU Package Power
-            system_power: {
-                let total_power = config.system.power_name.as_ref()
-                    .zip(config.system.power_unit.as_ref())
-                    .map(|(n, u)| self.find_by_name(n, u))
-                    .unwrap_or(0.0);
-
-                // 如果 Total System Power 找不到（返回 0），fallback 到 CPU Package Power
-                if total_power > 0.0 {
-                    total_power
-                } else {
-                    config.cpu.power_name.as_ref()
-                        .zip(config.cpu.power_unit.as_ref())
-                        .map(|(n, u)| self.find_by_name(n, u))
-                        .unwrap_or(0.0)
-                }
-            },
-        })
-    }
 }
 
 #[cfg(target_os = "windows")]
@@ -563,9 +264,6 @@ impl HWiNFOCollector {
         Err(anyhow::anyhow!("HWiNFO 仅在 Windows 平台上可用"))
     }
     pub fn is_valid(&self) -> bool { false }
-    pub fn get_system_info(&self) -> anyhow::Result<SystemInfo> {
-        Err(anyhow::anyhow!("HWiNFO 仅在 Windows 平台上可用"))
-    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -601,14 +299,6 @@ mod tests {
     fn test_entry_size() {
         let size = std::mem::size_of::<HWiNFOEntry>();
         assert!(size >= 312 && size <= 320, "Entry size should be around 312 bytes, got {}", size);
-    }
-
-    #[test]
-    fn test_config_default() {
-        let config = HWiNFOConfig::default_config();
-        assert_eq!(config.cpu.usage_name, "Total CPU Usage");
-        assert_eq!(config.gpu.usage_name, "GPU D3D Usage");
-        assert_eq!(config.battery.charge_name, Some("Charge Level".to_string()));
     }
 
     #[test]
