@@ -85,4 +85,4 @@ def Monitor(
         _module_path=str(Path(__file__).parent),
     )
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"

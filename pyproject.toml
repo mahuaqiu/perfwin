@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "perfwin"
-version = "0.3.3"
+version = "0.3.4"
 description = "Windows system performance monitoring extension"
 requires-python = ">=3.8"
 classifiers = [
