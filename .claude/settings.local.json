@@ -56,7 +56,25 @@
       "Bash(pip show *)",
       "Bash(pip list *)",
       "Bash(maturin build *)",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "Skill(systematic-debugging)",
+      "Bash(.venv\\\\Scripts\\\\activate)",
+      "PowerShell(.venv\\\\Scripts\\\\Activate.ps1; python -c \"import perfwin; print\\(perfwin.__version__\\)\")",
+      "PowerShell(pip uninstall *)",
+      "PowerShell(.venv\\\\Scripts\\\\Activate.ps1; python tests/verify_consistency.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -c \"import perfwin; print\\(perfwin.__version__\\)\")",
+      "PowerShell(cargo clean *)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -c \"import perfwin; print\\(perfwin.__file__\\); print\\(perfwin.__version__\\)\")",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe tests\\\\verify_consistency.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -c \"import perfwin; print\\('版本:', perfwin.__version__\\); import time; m = perfwin.Monitor\\(interval=1.0, process_filter=perfwin.ProcessFilter\\(name='System'\\), top_n_cpu=10\\); m.start\\(\\); time.sleep\\(3\\); m.stop\\(\\); r = m.get_result\\(\\); s = r[0]; print\\('processes:', len\\(s.processes\\) if s.processes else 0\\); print\\('top_n_cpu:', len\\(s.top_n_cpu\\) if s.top_n_cpu else 0\\)\")",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe tests\\\\quick_verify.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe tests\\\\verify_quark.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe tests\\\\verify_multi.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe tests\\\\test_hwinfo_lifecycle.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe tests\\\\test_hwinfo_lifecycle2.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe -c \"import perfwin; import os; print\\('Module path:', perfwin.__file__\\); print\\('HWiNFO expected path:', os.path.join\\(os.path.dirname\\(perfwin.__file__\\), 'HWiNFO64', 'HWiNFO64.EXE'\\)\\); print\\('Exists:', os.path.exists\\(os.path.join\\(os.path.dirname\\(perfwin.__file__\\), 'HWiNFO64', 'HWiNFO64.EXE'\\)\\)\\)\")",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe tests\\\\test_hwinfo_path.py)",
+      "PowerShell(.venv\\\\Scripts\\\\python.exe tests\\\\test_hwinfo_direct.py)"
     ]
   }
 }
