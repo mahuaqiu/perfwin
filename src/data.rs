@@ -46,10 +46,10 @@ pub struct Sample {
     pub processes: Option<Vec<ProcessInfo>>,
     /// 进程汇总数据 - 仅在按进程名筛选时返回（多个同名PID聚合）
     pub aggregated: Option<Vec<AggregatedProcessInfo>>,
-    /// Top N CPU 进程 - 仅在设置 top_n_cpu 参数时返回
-    pub top_n_cpu: Option<Vec<ProcessInfo>>,
-    /// Top N GPU 进程 - 仅在设置 top_n_gpu 参数时返回
-    pub top_n_gpu: Option<Vec<ProcessInfo>>,
+    /// Top N CPU 进程 - 仅在设置 top_n_cpu 参数时返回（同名进程合并后排序）
+    pub top_n_cpu: Option<Vec<AggregatedProcessInfo>>,
+    /// Top N GPU 进程 - 仅在设置 top_n_gpu 参数时返回（同名进程合并后排序）
+    pub top_n_gpu: Option<Vec<AggregatedProcessInfo>>,
 }
 
 /// 进程筛选配置

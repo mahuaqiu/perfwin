@@ -255,19 +255,19 @@ impl PySample {
         })
     }
 
-    /// Top N CPU 进程列表，可能为 None
+    /// Top N CPU 进程列表（同名进程合并后排序），可能为 None
     #[getter]
-    fn top_n_cpu(&self) -> Option<Vec<PyProcessInfo>> {
-        self.inner.top_n_cpu.as_ref().map(|procs| {
-            procs.iter().map(|p| PyProcessInfo::from(p.clone())).collect()
+    fn top_n_cpu(&self) -> Option<Vec<PyAggregatedProcessInfo>> {
+        self.inner.top_n_cpu.as_ref().map(|agg| {
+            agg.iter().map(|a| PyAggregatedProcessInfo::from(a.clone())).collect()
         })
     }
 
-    /// Top N GPU 进程列表，可能为 None
+    /// Top N GPU 进程列表（同名进程合并后排序），可能为 None
     #[getter]
-    fn top_n_gpu(&self) -> Option<Vec<PyProcessInfo>> {
-        self.inner.top_n_gpu.as_ref().map(|procs| {
-            procs.iter().map(|p| PyProcessInfo::from(p.clone())).collect()
+    fn top_n_gpu(&self) -> Option<Vec<PyAggregatedProcessInfo>> {
+        self.inner.top_n_gpu.as_ref().map(|agg| {
+            agg.iter().map(|a| PyAggregatedProcessInfo::from(a.clone())).collect()
         })
     }
 
@@ -424,12 +424,12 @@ impl PySample {
         }
 
         if let Some(top_n) = &self.inner.top_n_cpu {
-            let list = process_list_to_pylist(py, top_n)?;
+            let list = aggregated_list_to_pylist(py, top_n)?;
             dict.set_item("top_n_cpu", list)?;
         }
 
         if let Some(top_n) = &self.inner.top_n_gpu {
-            let list = process_list_to_pylist(py, top_n)?;
+            let list = aggregated_list_to_pylist(py, top_n)?;
             dict.set_item("top_n_gpu", list)?;
         }
 
@@ -450,6 +450,24 @@ fn process_list_to_pylist<'py>(py: Python<'py>, processes: &[ProcessInfo]) -> Py
         dict.set_item("gpu_percent", proc.gpu_percent)?;
         dict.set_item("gpu_memory_mb", proc.gpu_memory_mb)?;
         dict.set_item("handle_count", proc.handle_count)?;
+        list.append(dict)?;
+    }
+    Ok(list)
+}
+
+/// 将汇总进程列表转换为 Python 列表
+fn aggregated_list_to_pylist<'py>(py: Python<'py>, aggregated: &[AggregatedProcessInfo]) -> PyResult<Bound<'py, PyList>> {
+    let list = PyList::new_bound(py, Vec::<Bound<'py, PyDict>>::new());
+    for agg in aggregated {
+        let dict = PyDict::new_bound(py);
+        dict.set_item("name", &agg.name)?;
+        dict.set_item("pids", &agg.pids)?;
+        dict.set_item("cpu_percent_total", agg.cpu_percent_total)?;
+        dict.set_item("working_set_mb_total", agg.working_set_mb_total)?;
+        dict.set_item("committed_memory_mb_total", agg.committed_memory_mb_total)?;
+        dict.set_item("gpu_percent_total", agg.gpu_percent_total)?;
+        dict.set_item("handle_count_total", agg.handle_count_total)?;
+        dict.set_item("process_count", agg.process_count)?;
         list.append(dict)?;
     }
     Ok(list)

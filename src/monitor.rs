@@ -212,14 +212,14 @@ fn collect_sample(
         None
     };
 
-    // 从缓存派生 top_n_cpu（排序取 top N）
+    // 从缓存派生 top_n_cpu（合并同名进程后排序取 top N）
     let top_n_cpu = config.top_n_cpu.map(|n| {
-        get_top_n_from_cache(&cached_processes, n, |p| p.cpu_percent)
+        get_top_n_aggregated_from_cache(&cached_processes, n, true)
     });
 
-    // 从缓存派生 top_n_gpu（排序取 top N）
+    // 从缓存派生 top_n_gpu（合并同名进程后排序取 top N）
     let top_n_gpu = config.top_n_gpu.map(|n| {
-        get_top_n_from_cache(&cached_processes, n, |p| p.gpu_percent)
+        get_top_n_aggregated_from_cache(&cached_processes, n, false)
     });
 
     Sample {
@@ -292,6 +292,51 @@ where
         })
         .take(n)
         .cloned()
+        .collect()
+}
+
+/// 从缓存的进程列表中，先按进程名合并，再排序取 Top N（用于 top_n_cpu/top_n_gpu）
+/// sort_by_cpu: true 表示按 CPU 排序，false 表示按 GPU 排序
+fn get_top_n_aggregated_from_cache(
+    cached: &[ProcessInfo],
+    n: usize,
+    sort_by_cpu: bool,
+) -> Vec<AggregatedProcessInfo> {
+    use std::collections::HashMap;
+
+    // 按进程名分组
+    let mut groups: HashMap<String, Vec<&ProcessInfo>> = HashMap::new();
+    for proc in cached {
+        groups.entry(proc.name.clone()).or_default().push(proc);
+    }
+
+    // 计算汇总数据并按指定字段排序
+    groups.into_iter()
+        .map(|(name, procs)| {
+            let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
+            let cpu_percent_total = procs.iter().map(|p| p.cpu_percent).sum();
+            let working_set_mb_total = procs.iter().map(|p| p.working_set_mb).sum();
+            let committed_memory_mb_total = procs.iter().map(|p| p.committed_memory_mb).sum();
+            let gpu_percent_total = procs.iter().map(|p| p.gpu_percent).sum();
+            let handle_count_total = procs.iter().map(|p| p.handle_count).sum();
+
+            AggregatedProcessInfo {
+                name,
+                pids,
+                cpu_percent_total,
+                working_set_mb_total,
+                committed_memory_mb_total,
+                gpu_percent_total,
+                handle_count_total,
+                process_count: procs.len(),
+            }
+        })
+        .sorted_by(|a, b| {
+            let val_a = if sort_by_cpu { a.cpu_percent_total } else { a.gpu_percent_total };
+            let val_b = if sort_by_cpu { b.cpu_percent_total } else { b.gpu_percent_total };
+            val_b.partial_cmp(&val_a).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .take(n)
         .collect()
 }
 
