@@ -71,22 +71,15 @@ impl HWiNFOManager {
             return Ok(());
         }
 
-        let path_str = self.path.to_string_lossy();
-
-        // 使用 PowerShell Start-Process 启动 HWiNFO，隐藏窗口
-        // 注意：Command 本身也要隐藏窗口，避免 PowerShell 弹出黑框
+        // 直接启动 HWiNFO64.EXE，使用 CREATE_NO_WINDOW 隐藏窗口
+        // 不通过 PowerShell，避免 PowerShell 弹窗闪烁
         #[cfg(target_os = "windows")]
-        let output = Command::new("powershell")
-            .arg("-Command")
-            .arg(format!("Start-Process -FilePath '{}' -WindowStyle Hidden", path_str))
+        let _child = Command::new(&self.path)
             .creation_flags(CREATE_NO_WINDOW)
-            .output()
+            .spawn()
             .map_err(|e| anyhow::anyhow!("Failed to start HWiNFO: {}", e))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Failed to start HWiNFO: {}", stderr));
-        }
+        // 不需要等待进程输出，spawn 成功即可
 
         // 等待共享内存生效
         std::thread::sleep(Duration::from_secs(5));
