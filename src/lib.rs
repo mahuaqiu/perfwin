@@ -950,7 +950,7 @@ fn perfwin(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(list_processes, m)?)?;
 
     // 模块版本
-    m.add("__version__", "0.3.0")?;
+    m.add("__version__", "0.3.1")?;
 
     Ok(())
 }

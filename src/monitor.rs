@@ -167,16 +167,30 @@ fn collect_sample(
         .map(|h| h.get_all_entries())
         .unwrap_or_default();
 
-    // 进程数据（有筛选条件时返回）
-    let processes = if config.process_filter.is_some() {
-        let mut procs = get_filtered_processes(config, sysinfo_collector);
+    // 判断是否需要采集进程数据
+    let need_processes = config.process_filter.is_some();
+    let need_top_n_cpu = config.top_n_cpu.is_some();
+    let need_top_n_gpu = config.top_n_gpu.is_some();
+    let need_any_process_data = need_processes || need_top_n_cpu || need_top_n_gpu;
 
+    // 单次采集：只 refresh 一次，获取所有进程数据
+    let cached_processes: Vec<ProcessInfo> = if need_any_process_data {
+        let mut all_procs = sysinfo_collector.get_all_processes();
+
+        // 单次采集 GPU 数据，更新到所有进程
         if let Some(pdh) = pdh_collector {
             let _ = pdh.collect();
-            let _ = pdh.update_process_gpu(&mut procs);
+            let _ = pdh.update_process_gpu(&mut all_procs);
         }
 
-        Some(procs)
+        all_procs
+    } else {
+        Vec::new()
+    };
+
+    // 从缓存派生 processes（筛选）
+    let processes = if need_processes {
+        Some(filter_processes_from_cache(config, &cached_processes))
     } else {
         None
     };
@@ -198,22 +212,14 @@ fn collect_sample(
         None
     };
 
-    let top_n_cpu = config.top_n_cpu.and_then(|n| {
-        let mut procs = get_top_n_processes(sysinfo_collector, n, |p| p.cpu_percent);
-        if let Some(pdh) = pdh_collector {
-            let _ = pdh.collect();
-            let _ = pdh.update_process_gpu(&mut procs);
-        }
-        Some(procs)
+    // 从缓存派生 top_n_cpu（排序取 top N）
+    let top_n_cpu = config.top_n_cpu.map(|n| {
+        get_top_n_from_cache(&cached_processes, n, |p| p.cpu_percent)
     });
 
-    let top_n_gpu = config.top_n_gpu.and_then(|n| {
-        let mut procs = get_top_n_processes(sysinfo_collector, n, |p| p.gpu_percent);
-        if let Some(pdh) = pdh_collector {
-            let _ = pdh.collect();
-            let _ = pdh.update_process_gpu(&mut procs);
-        }
-        Some(procs)
+    // 从缓存派生 top_n_gpu（排序取 top N）
+    let top_n_gpu = config.top_n_gpu.map(|n| {
+        get_top_n_from_cache(&cached_processes, n, |p| p.gpu_percent)
     });
 
     Sample {
@@ -226,39 +232,67 @@ fn collect_sample(
     }
 }
 
-fn get_filtered_processes(
+/// 从缓存的进程列表中筛选
+fn filter_processes_from_cache(
     config: &MonitorConfig,
-    sysinfo_collector: &mut SysinfoCollector,
+    cached: &[ProcessInfo],
 ) -> Vec<ProcessInfo> {
     match &config.process_filter {
         Some(ProcessFilter::Pids(pids)) => {
             pids.iter()
                 .filter_map(|&pid| {
-                    sysinfo_collector.get_process_by_pid(pid)
+                    cached.iter()
+                        .find(|p| p.pid == pid)
+                        .cloned()
                         .or_else(|| Some(create_placeholder_process(pid)))
                 })
                 .collect()
         }
         Some(ProcessFilter::Name(name)) => {
-            sysinfo_collector.get_processes_by_name(name)
+            cached.iter()
+                .filter(|p| p.name == *name)
+                .cloned()
+                .collect()
         }
         Some(ProcessFilter::Names(names)) => {
-            // 多个进程名：合并所有匹配的进程
-            names.iter()
-                .flat_map(|name| sysinfo_collector.get_processes_by_name(name))
+            cached.iter()
+                .filter(|p| names.contains(&p.name))
+                .cloned()
                 .collect()
         }
         Some(ProcessFilter::NameRegex(pattern)) => {
             match regex::Regex::new(pattern) {
                 Ok(re) => {
-                    let all_procs = sysinfo_collector.get_all_processes();
-                    all_procs.into_iter().filter(|p| re.is_match(&p.name)).collect()
+                    cached.iter()
+                        .filter(|p| re.is_match(&p.name))
+                        .cloned()
+                        .collect()
                 }
                 Err(_) => Vec::new()
             }
         }
         None => Vec::new()
     }
+}
+
+/// 从缓存的进程列表中排序取 Top N
+fn get_top_n_from_cache<F>(
+    cached: &[ProcessInfo],
+    n: usize,
+    extractor: F,
+) -> Vec<ProcessInfo>
+where
+    F: Fn(&ProcessInfo) -> f64,
+{
+    cached.iter()
+        .sorted_by(|a, b| {
+            let val_a = extractor(a);
+            let val_b = extractor(b);
+            val_b.partial_cmp(&val_a).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .take(n)
+        .cloned()
+        .collect()
 }
 
 /// 汇总同名进程数据
@@ -292,26 +326,6 @@ fn aggregate_processes(processes: &[ProcessInfo]) -> Vec<AggregatedProcessInfo> 
                 process_count: procs.len(),
             }
         })
-        .collect()
-}
-
-fn get_top_n_processes<F>(
-    sysinfo_collector: &mut SysinfoCollector,
-    n: usize,
-    extractor: F,
-) -> Vec<ProcessInfo>
-where
-    F: Fn(&ProcessInfo) -> f64,
-{
-    let all_procs = sysinfo_collector.get_all_processes();
-    all_procs
-        .into_iter()
-        .sorted_by(|a, b| {
-            let val_a = extractor(a);
-            let val_b = extractor(b);
-            val_b.partial_cmp(&val_a).unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .take(n)
         .collect()
 }
 
