@@ -276,6 +276,25 @@ impl HWiNFOCollector {
 
         result
     }
+
+    /// 获取 HWiNFO 中可识别的 GPU 使用率，供 PDH 故障时回退使用。
+    pub fn gpu_utilization_percent(&self) -> Option<f64> {
+        self.iter_entries()
+            .filter(|entry| entry.sensor_type == SensorType::Usage)
+            .filter(|entry| entry.unit.trim() == "%")
+            .filter(|entry| {
+                let label = entry.label().to_ascii_lowercase();
+                label.contains("gpu")
+                    || label.contains("3d")
+                    || label.contains("d3d")
+                    || label.contains("video engine")
+                    || label.contains("compute")
+            })
+            .map(|entry| entry.value)
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .map(|value| value.clamp(0.0, 100.0))
+            .reduce(f64::max)
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -303,6 +322,7 @@ impl HWiNFOCollector {
         Err(anyhow::anyhow!("HWiNFO 仅在 Windows 平台上可用"))
     }
     pub fn is_valid(&self) -> bool { false }
+    pub fn gpu_utilization_percent(&self) -> Option<f64> { None }
 }
 
 #[cfg(not(target_os = "windows"))]

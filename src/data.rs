@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// HWiNFO 传感器数据值
@@ -35,10 +35,39 @@ pub struct AggregatedProcessInfo {
     pub process_count: usize,      // 进程数量
 }
 
+/// 单个 GPU 适配器的系统利用率。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuAdapterMetrics {
+    pub luid: String,
+    pub name: String,
+    pub utilization_percent: f64,
+}
+
+/// 系统级性能指标。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemMetrics {
+    pub cpu_percent: Option<f64>,
+    pub gpu_percent: Option<f64>,
+    pub gpu_adapters: Vec<GpuAdapterMetrics>,
+    pub gpu_source: String,
+}
+impl Default for SystemMetrics {
+    fn default() -> Self {
+        Self {
+            cpu_percent: None,
+            gpu_percent: None,
+            gpu_adapters: Vec::new(),
+            gpu_source: String::from("unavailable"),
+        }
+    }
+}
 /// 单次采样数据
 /// HWiNFO原始数据每次采集都返回，进程级数据按筛选条件返回
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sample {
+    pub sequence: u64,
+    pub elapsed_ms: u64,
+    pub system: SystemMetrics,
     pub timestamp: DateTime<Utc>,
     /// HWiNFO 原始数据 - 所有传感器数据（按原始名称索引）
     pub hwinfo_raw: HashMap<String, SensorValue>,

@@ -52,6 +52,7 @@ impl SysinfoCollector {
             }
         }
 
+        self.sys.refresh_cpu_usage();
         self.sys.refresh_processes_specifics(
             sysinfo::ProcessesToUpdate::All,
             sysinfo::ProcessRefreshKind::everything()
@@ -59,6 +60,11 @@ impl SysinfoCollector {
         self.last_refresh_time = Some(now);
     }
 
+    /// 获取系统 CPU 使用率（整机总 CPU 百分比）。
+    pub fn get_cpu_percent(&mut self) -> f64 {
+        self.refresh();
+        self.sys.global_cpu_usage() as f64
+    }
     /// 获取所有进程信息
     pub fn get_all_processes(&mut self) -> Vec<ProcessInfo> {
         self.refresh();

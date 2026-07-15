@@ -11,7 +11,7 @@ pub mod hwinfo_manager;
 pub mod monitor;
 
 use crate::data::{
-    ProcessInfo, AggregatedProcessInfo, Sample, MonitorConfig, ProcessFilter,
+    ProcessInfo, AggregatedProcessInfo, Sample, SystemMetrics, MonitorConfig, ProcessFilter,
 };
 use crate::monitor::MonitorCore;
 use crate::collector::hwinfo::{HWiNFOCollector, SensorEntry};
@@ -210,7 +210,10 @@ impl PySample {
     fn new() -> Self {
         Self {
             inner: Sample {
+                sequence: 0,
+                elapsed_ms: 0,
                 timestamp: chrono::Utc::now(),
+                system: SystemMetrics::default(),
                 hwinfo_raw: std::collections::HashMap::new(),
                 processes: None,
                 aggregated: None,
@@ -220,6 +223,23 @@ impl PySample {
         }
     }
 
+    /// 采样序号
+    #[getter]
+    fn sequence(&self) -> u64 {
+        self.inner.sequence
+    }
+
+    /// 相对监控开始时间，单位毫秒
+    #[getter]
+    fn elapsed_ms(&self) -> u64 {
+        self.inner.elapsed_ms
+    }
+
+    /// 系统指标
+    #[getter]
+    fn system(&self, py: Python<'_>) -> PyResult<PyObject> {
+        system_metrics_to_pyobject(py, &self.inner.system)
+    }
     /// 采样时间戳 (ISO 8601 格式字符串)
     #[getter]
     fn timestamp(&self) -> String {
@@ -375,7 +395,10 @@ impl PySample {
     fn to_dict<'a>(&self, py: Python<'a>) -> PyResult<Bound<'a, PyDict>> {
         let dict = PyDict::new_bound(py);
 
+        dict.set_item("sequence", self.inner.sequence)?;
+        dict.set_item("elapsed_ms", self.inner.elapsed_ms)?;
         dict.set_item("timestamp", self.inner.timestamp.to_rfc3339())?;
+        dict.set_item("system", system_metrics_to_pyobject(py, &self.inner.system)?)?;
 
         // hwinfo_raw 必须返回
         let hwinfo_dict = PyDict::new_bound(py);
@@ -437,6 +460,22 @@ impl PySample {
     }
 }
 
+fn system_metrics_to_pyobject<'py>(py: Python<'py>, system: &SystemMetrics) -> PyResult<PyObject> {
+    let dict = PyDict::new_bound(py);
+    dict.set_item("cpu_percent", system.cpu_percent)?;
+    dict.set_item("gpu_percent", system.gpu_percent)?;
+    dict.set_item("gpu_source", &system.gpu_source)?;
+    let adapters = PyList::new_bound(py, Vec::<Bound<'py, PyDict>>::new());
+    for adapter in &system.gpu_adapters {
+        let item = PyDict::new_bound(py);
+        item.set_item("luid", &adapter.luid)?;
+        item.set_item("name", &adapter.name)?;
+        item.set_item("utilization_percent", adapter.utilization_percent)?;
+        adapters.append(item)?;
+    }
+    dict.set_item("gpu_adapters", adapters)?;
+    Ok(dict.into())
+}
 /// 将进程列表转换为 Python 列表
 fn process_list_to_pylist<'py>(py: Python<'py>, processes: &[ProcessInfo]) -> PyResult<Bound<'py, PyList>> {
     let list = PyList::new_bound(py, Vec::<Bound<'py, PyDict>>::new());
@@ -968,7 +1007,7 @@ fn perfwin(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(list_processes, m)?)?;
 
     // 模块版本
-    m.add("__version__", "0.3.1")?;
+    m.add("__version__", "0.4.0")?;
 
     Ok(())
 }

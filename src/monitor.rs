@@ -6,10 +6,12 @@ use chrono::Utc;
 use parking_lot::Mutex;
 use itertools::Itertools;
 
-use crate::data::{Sample, MonitorConfig, ProcessFilter, ProcessInfo, AggregatedProcessInfo};
+use crate::data::{AggregatedProcessInfo, MonitorConfig, ProcessFilter, ProcessInfo, Sample, SystemMetrics};
 use crate::ring_buffer::RingBuffer;
 use crate::collector::{SysinfoCollector, PdhCollector, HWiNFOCollector};
 use crate::hwinfo_manager::HWiNFOManager;
+
+const PDH_FAILURE_THRESHOLD: u32 = 3;
 
 /// Monitor 核心结构
 pub struct MonitorCore {
@@ -66,6 +68,7 @@ impl MonitorCore {
             };
             // HWiNFO 强制启用，首次创建可能失败（配置过期）
             let mut hwinfo_collector = HWiNFOCollector::new().ok();
+            let mut pdh_failures = if pdh_collector.is_none() { PDH_FAILURE_THRESHOLD } else { 0 };
 
             let start_time = Instant::now();
             let interval = Duration::from_secs_f64(config.interval);
@@ -76,6 +79,7 @@ impl MonitorCore {
             }
 
             thread::sleep(interval);
+            let mut sequence = 0u64;
 
             while running.load(Ordering::SeqCst) {
                 if let Some(duration) = config.duration {
@@ -110,11 +114,16 @@ impl MonitorCore {
                     }
                 }
 
+                sequence += 1;
+                let elapsed_ms = start_time.elapsed().as_millis() as u64;
                 let sample = collect_sample(
                     &config,
                     &mut sysinfo_collector,
                     &mut pdh_collector,
                     &hwinfo_collector,
+                    &mut pdh_failures,
+                    sequence,
+                    elapsed_ms,
                 );
 
                 buffer.push(sample);
@@ -161,12 +170,39 @@ fn collect_sample(
     sysinfo_collector: &mut SysinfoCollector,
     pdh_collector: &mut Option<PdhCollector>,
     hwinfo_collector: &Option<HWiNFOCollector>,
+    pdh_failures: &mut u32,
+    sequence: u64,
+    elapsed_ms: u64,
 ) -> Sample {
     // 获取 HWiNFO 原始数据
     let hwinfo_raw = hwinfo_collector.as_ref()
         .map(|h| h.get_all_entries())
         .unwrap_or_default();
 
+    // 系统 GPU 与进程 GPU 共用同一轮 PDH 快照。
+    let mut pdh_snapshot_valid = false;
+    let system = if let Some(pdh) = pdh_collector {
+        match pdh.collect() {
+            Ok(()) => {
+                *pdh_failures = 0;
+                pdh_snapshot_valid = true;
+                pdh.system_metrics()
+            }
+            Err(error) => {
+                *pdh_failures = pdh_failures.saturating_add(1);
+                log::warn!("PDH GPU 采集失败: {}", error);
+                fallback_gpu_metrics(hwinfo_collector, *pdh_failures)
+            }
+        }
+    } else {
+        *pdh_failures = PDH_FAILURE_THRESHOLD;
+        fallback_gpu_metrics(hwinfo_collector, *pdh_failures)
+    };
+    let cpu_percent = if config.enable_sysinfo {
+        Some(sysinfo_collector.get_cpu_percent())
+    } else {
+        None
+    };
     // 判断是否需要采集进程数据
     let need_processes = config.process_filter.is_some();
     let need_top_n_cpu = config.top_n_cpu.is_some();
@@ -176,11 +212,11 @@ fn collect_sample(
     // 单次采集：只 refresh 一次，获取所有进程数据
     let cached_processes: Vec<ProcessInfo> = if need_any_process_data {
         let mut all_procs = sysinfo_collector.get_all_processes();
-
-        // 单次采集 GPU 数据，更新到所有进程
-        if let Some(pdh) = pdh_collector {
-            let _ = pdh.collect();
-            let _ = pdh.update_process_gpu(&mut all_procs);
+        // 使用本轮已经采集的 PDH 快照更新进程 GPU.
+        if pdh_snapshot_valid {
+            if let Some(pdh) = pdh_collector {
+                let _ = pdh.update_process_gpu(&mut all_procs);
+            }
         }
 
         all_procs
@@ -223,7 +259,13 @@ fn collect_sample(
     });
 
     Sample {
+        sequence,
+        elapsed_ms,
         timestamp: Utc::now(),
+        system: SystemMetrics {
+            cpu_percent,
+            ..system
+        },
         hwinfo_raw,
         processes,
         aggregated,
@@ -232,6 +274,28 @@ fn collect_sample(
     }
 }
 
+fn fallback_gpu_metrics(
+    hwinfo_collector: &Option<HWiNFOCollector>,
+    pdh_failures: u32,
+) -> SystemMetrics {
+    if pdh_failures < PDH_FAILURE_THRESHOLD {
+        return SystemMetrics::default();
+    }
+
+    if let Some(gpu_percent) = hwinfo_collector
+        .as_ref()
+        .and_then(HWiNFOCollector::gpu_utilization_percent)
+    {
+        return SystemMetrics {
+            gpu_percent: Some(gpu_percent),
+            gpu_adapters: Vec::new(),
+            gpu_source: String::from("hwinfo_fallback"),
+            ..SystemMetrics::default()
+        };
+    }
+
+    SystemMetrics::default()
+}
 /// 从缓存的进程列表中筛选
 fn filter_processes_from_cache(
     config: &MonitorConfig,
