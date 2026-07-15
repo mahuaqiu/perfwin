@@ -186,15 +186,43 @@ fn collect_sample(
             Ok(()) => {
                 *pdh_failures = 0;
                 pdh_snapshot_valid = true;
-                pdh.system_metrics()
+                let metrics = pdh.system_metrics();
+                let diag = pdh.last_diagnostics();
+                // 有原始实例却解析不出适配器，说明主路径有问题，立即尝试 HWiNFO 回退并打错误日志
+                if diag.raw_item_count > 0
+                    && diag.parsed_item_count == 0
+                    && metrics.gpu_adapters.is_empty()
+                {
+                    log::error!(
+                        "PDH GPU 主路径无效: raw_items={} parsed=0 adapters=0 unparsed={:?}，尝试 HWiNFO 回退",
+                        diag.raw_item_count,
+                        diag.sample_unparsed
+                    );
+                    let fallback = fallback_gpu_metrics(hwinfo_collector, PDH_FAILURE_THRESHOLD);
+                    if fallback.gpu_source == "hwinfo_fallback" {
+                        fallback
+                    } else {
+                        metrics
+                    }
+                } else {
+                    metrics
+                }
             }
             Err(error) => {
                 *pdh_failures = pdh_failures.saturating_add(1);
-                log::warn!("PDH GPU 采集失败: {}", error);
+                log::error!(
+                    "PDH GPU 采集失败 ({}/{}): {}",
+                    *pdh_failures,
+                    PDH_FAILURE_THRESHOLD,
+                    error
+                );
                 fallback_gpu_metrics(hwinfo_collector, *pdh_failures)
             }
         }
     } else {
+        if *pdh_failures < PDH_FAILURE_THRESHOLD {
+            log::error!("PDH GPU collector 不可用，准备 HWiNFO 回退");
+        }
         *pdh_failures = PDH_FAILURE_THRESHOLD;
         fallback_gpu_metrics(hwinfo_collector, *pdh_failures)
     };
@@ -232,6 +260,12 @@ fn collect_sample(
     };
 
     // 汇总数据（仅进程名筛选且启用汇总时返回）
+    // GPU 汇总优先用本轮 PDH 引擎数据（按引擎 sum 再 max），避免多实例简单相加高于系统。
+    let pdh_for_gpu = if pdh_snapshot_valid {
+        pdh_collector.as_ref()
+    } else {
+        None
+    };
     let aggregated = if config.enable_aggregation && processes.is_some() {
         let procs = processes.as_ref().unwrap();
         // 判断是否是进程名筛选（Name 或 Names）
@@ -240,7 +274,7 @@ fn collect_sample(
             Some(ProcessFilter::Name(_)) | Some(ProcessFilter::Names(_))
         );
         if is_name_filter {
-            Some(aggregate_processes(procs))
+            Some(aggregate_processes(procs, pdh_for_gpu))
         } else {
             None
         }
@@ -250,12 +284,12 @@ fn collect_sample(
 
     // 从缓存派生 top_n_cpu（合并同名进程后排序取 top N）
     let top_n_cpu = config.top_n_cpu.map(|n| {
-        get_top_n_aggregated_from_cache(&cached_processes, n, true)
+        get_top_n_aggregated_from_cache(&cached_processes, n, true, pdh_for_gpu)
     });
 
     // 从缓存派生 top_n_gpu（合并同名进程后排序取 top N）
     let top_n_gpu = config.top_n_gpu.map(|n| {
-        get_top_n_aggregated_from_cache(&cached_processes, n, false)
+        get_top_n_aggregated_from_cache(&cached_processes, n, false, pdh_for_gpu)
     });
 
     Sample {
@@ -286,6 +320,10 @@ fn fallback_gpu_metrics(
         .as_ref()
         .and_then(HWiNFOCollector::gpu_utilization_percent)
     {
+        log::error!(
+            "GPU 回退到 HWiNFO: gpu_percent={:.3}, reason=pdh_unavailable_or_unparsed",
+            gpu_percent
+        );
         return SystemMetrics {
             gpu_percent: Some(gpu_percent),
             gpu_adapters: Vec::new(),
@@ -294,6 +332,10 @@ fn fallback_gpu_metrics(
         };
     }
 
+    log::error!(
+        "GPU 不可用: PDH 失败且 HWiNFO 无可用 GPU 使用率字段 (pdh_failures={})",
+        pdh_failures
+    );
     SystemMetrics::default()
 }
 /// 从缓存的进程列表中筛选
@@ -365,6 +407,7 @@ fn get_top_n_aggregated_from_cache(
     cached: &[ProcessInfo],
     n: usize,
     sort_by_cpu: bool,
+    pdh: Option<&PdhCollector>,
 ) -> Vec<AggregatedProcessInfo> {
     use std::collections::HashMap;
 
@@ -381,7 +424,12 @@ fn get_top_n_aggregated_from_cache(
             let cpu_percent_total = procs.iter().map(|p| p.cpu_percent).sum();
             let working_set_mb_total = procs.iter().map(|p| p.working_set_mb).sum();
             let committed_memory_mb_total = procs.iter().map(|p| p.committed_memory_mb).sum();
-            let gpu_percent_total = procs.iter().map(|p| p.gpu_percent).sum();
+            // GPU：优先引擎维度（同名多实例 sum-by-engine 再 max），避免简单 PID 相加高于系统
+            let gpu_percent_total = if let Some(collector) = pdh {
+                collector.gpu_for_pids(&pids)
+            } else {
+                procs.iter().map(|p| p.gpu_percent).fold(0.0_f64, f64::max)
+            };
             let handle_count_total = procs.iter().map(|p| p.handle_count).sum();
 
             AggregatedProcessInfo {
@@ -404,8 +452,12 @@ fn get_top_n_aggregated_from_cache(
         .collect()
 }
 
-/// 汇总同名进程数据
-fn aggregate_processes(processes: &[ProcessInfo]) -> Vec<AggregatedProcessInfo> {
+/// 汇总同名进程数据。
+/// GPU 优先使用 PDH 引擎维度：同名多实例在同一引擎上求和，再对引擎取 max。
+fn aggregate_processes(
+    processes: &[ProcessInfo],
+    pdh: Option<&PdhCollector>,
+) -> Vec<AggregatedProcessInfo> {
     use std::collections::HashMap;
 
     // 按进程名分组
@@ -421,7 +473,11 @@ fn aggregate_processes(processes: &[ProcessInfo]) -> Vec<AggregatedProcessInfo> 
             let cpu_percent_total = procs.iter().map(|p| p.cpu_percent).sum();
             let working_set_mb_total = procs.iter().map(|p| p.working_set_mb).sum();
             let committed_memory_mb_total = procs.iter().map(|p| p.committed_memory_mb).sum();
-            let gpu_percent_total = procs.iter().map(|p| p.gpu_percent).sum();
+            let gpu_percent_total = if let Some(collector) = pdh {
+                collector.gpu_for_pids(&pids)
+            } else {
+                procs.iter().map(|p| p.gpu_percent).fold(0.0_f64, f64::max)
+            };
             let handle_count_total = procs.iter().map(|p| p.handle_count).sum();
 
             AggregatedProcessInfo {

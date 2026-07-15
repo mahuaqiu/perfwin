@@ -10,9 +10,13 @@ use std::time::Duration;
 use std::fs;
 use anyhow::Result;
 
-// Windows 隐藏子进程窗口的标志
+// Windows 进程创建标志：避免子进程继承/操作父控制台窗口
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(target_os = "windows")]
+const DETACHED_PROCESS: u32 = 0x00000008;
+#[cfg(target_os = "windows")]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
 /// HWiNFO 进程管理器
 ///
@@ -60,8 +64,10 @@ impl HWiNFOManager {
     /// 启动 HWiNFO
     ///
     /// 如果 HWiNFO 已在运行，则跳过启动。
-    /// 使用 PowerShell Start-Process -WindowStyle Hidden 启动，避免窗口闪烁
-    /// PowerShell 本身也使用 CREATE_NO_WINDOW 隐藏
+    ///
+    /// 重要：绝不能对“继承了父控制台”的 PowerShell 使用 `-WindowStyle Hidden`，
+    /// 否则会把当前 Python/CMD 调试窗口一起隐藏。应使用 CREATE_NO_WINDOW 让
+    /// 启动器与父控制台隔离，再由 Start-Process 单独隐藏 HWiNFO GUI。
     ///
     /// # 返回
     /// 成功返回 Ok(())，失败返回错误
@@ -72,23 +78,56 @@ impl HWiNFOManager {
             return Ok(());
         }
 
-        let path_str = self.path.to_string_lossy();
+        if !self.path.exists() {
+            return Err(anyhow::anyhow!("HWiNFO executable not found: {}", self.path.display()));
+        }
 
-        // 使用 PowerShell Start-Process 启动 HWiNFO，隐藏窗口
-        // PowerShell 本身也使用 CREATE_NO_WINDOW，避免 PowerShell 弹窗闪烁
+        let path_str = self.path.to_string_lossy().replace('\'', "''");
+
+        // 1) 优先：PowerShell Start-Process 隐藏 HWiNFO GUI，但 PowerShell 进程本身
+        //    必须 CREATE_NO_WINDOW，避免附着到父 CMD 控制台。
+        // 2) 回退：直接 spawn HWiNFO（可能短暂闪一下 GUI，但不影响父控制台）。
         #[cfg(target_os = "windows")]
-        let output = Command::new("powershell")
-            .args([
-                "-WindowStyle", "Hidden",  // PowerShell 自己隐藏
-                "-Command",
-                &format!("Start-Process -FilePath '{}' -WindowStyle Hidden", path_str),
-            ])
-            .output()
-            .map_err(|e| anyhow::anyhow!("Failed to start HWiNFO: {}", e))?;
+        {
+            let ps_result = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &format!(
+                        "Start-Process -FilePath '{}' -WindowStyle Hidden",
+                        path_str
+                    ),
+                ])
+                .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)
+                .output();
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Failed to start HWiNFO: {}", stderr));
+            match ps_result {
+                Ok(output) if output.status.success() => {}
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    log::warn!(
+                        "Start HWiNFO via PowerShell failed, fallback to direct spawn: {}",
+                        stderr
+                    );
+                    Command::new(&self.path)
+                        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+                        .spawn()
+                        .map_err(|e| anyhow::anyhow!("Failed to start HWiNFO directly: {}", e))?;
+                }
+                Err(e) => {
+                    log::warn!(
+                        "PowerShell unavailable for HWiNFO start, fallback to direct spawn: {}",
+                        e
+                    );
+                    Command::new(&self.path)
+                        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+                        .spawn()
+                        .map_err(|err| anyhow::anyhow!("Failed to start HWiNFO directly: {}", err))?;
+                }
+            }
         }
 
         // 等待共享内存生效
