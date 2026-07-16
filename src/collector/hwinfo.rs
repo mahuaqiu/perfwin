@@ -282,19 +282,25 @@ impl HWiNFOCollector {
         self.iter_entries()
             .filter(|entry| entry.sensor_type == SensorType::Usage)
             .filter(|entry| entry.unit.trim() == "%")
-            .filter(|entry| {
-                let label = entry.label().to_ascii_lowercase();
-                label.contains("gpu")
-                    || label.contains("3d")
-                    || label.contains("d3d")
-                    || label.contains("video engine")
-                    || label.contains("compute")
-            })
+            .filter(|entry| is_gpu_utilization_label(entry.label()))
             .map(|entry| entry.value)
             .filter(|value| value.is_finite() && *value >= 0.0)
             .map(|value| value.clamp(0.0, 100.0))
             .reduce(f64::max)
     }
+}
+
+#[cfg(target_os = "windows")]
+fn is_gpu_utilization_label(label: &str) -> bool {
+    matches!(
+        label.trim().to_ascii_lowercase().as_str(),
+        "gpu d3d usage"
+            | "gpu core load"
+            | "gpu usage"
+            | "gpu utilization"
+            | "total gpu usage"
+            | "gpu load"
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -346,6 +352,17 @@ pub struct SensorEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn gpu_utilization_label_excludes_non_load_sensors() {
+        assert!(is_gpu_utilization_label("GPU D3D Usage"));
+        assert!(is_gpu_utilization_label("GPU Core Load"));
+        assert!(!is_gpu_utilization_label("GPU Fan #2"));
+        assert!(!is_gpu_utilization_label("GPU Memory Usage"));
+        assert!(!is_gpu_utilization_label("GPU Video Engine Load"));
+        assert!(!is_gpu_utilization_label("Total GPU Power [% of TDP]"));
+    }
 
     #[test]
     #[cfg(target_os = "windows")]
